@@ -49,10 +49,16 @@ bindkey -v
 export KEYTIMEOUT=1
 
 # History search on arrow keys (works in both insert and normal mode)
-bindkey '^[[A' history-search-backward
-bindkey '^[[B' history-search-forward
+bindkey '^[[A'    history-search-backward
+bindkey '^[[B'    history-search-forward
+bindkey '\e[A'    history-search-backward
+bindkey '\e[B'    history-search-forward
 bindkey -M vicmd 'k' history-search-backward
 bindkey -M vicmd 'j' history-search-forward
+
+# Word navigation
+bindkey '^[[1;5C' forward-word   # Ctrl+Right
+bindkey '^[[1;5D' backward-word  # Ctrl+Left
 
 # ── History ────────────────────────────────────────────────────
 HISTFILE="${XDG_STATE_HOME}/zsh/history"
@@ -60,13 +66,21 @@ HISTSIZE=1000000
 SAVEHIST=1000000
 [[ ! -d "$(dirname "$HISTFILE")" ]] && mkdir -p "$(dirname "$HISTFILE")"
 setopt HIST_IGNORE_DUPS
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_SAVE_NO_DUPS
+setopt HIST_FIND_NO_DUPS
 setopt HIST_IGNORE_SPACE
 setopt SHARE_HISTORY
 setopt EXTENDED_HISTORY
 setopt HIST_VERIFY
 
+# ── Shell options ──────────────────────────────────────────────
+setopt AUTO_CD
+setopt COMPLETE_IN_WORD
+setopt NO_BEEP
+
 # ── Completion ─────────────────────────────────────────────────
-autoload -Uz compinit
+autoload -Uz compinit _zinit
 [[ ! -d "${XDG_CACHE_HOME}/zsh" ]] && mkdir -p "${XDG_CACHE_HOME}/zsh"
 _zcompdump="${XDG_CACHE_HOME}/zsh/zcompdump-${ZSH_VERSION}"
 if [[ -n ${_zcompdump}(#qN.mh+24) ]]; then
@@ -76,15 +90,17 @@ else
 fi
 unset _zcompdump
 zinit cdreplay -q
+(( ${+_comps} )) && _comps[zinit]=_zinit
 
 zstyle ':completion:*' menu select
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*:descriptions' format '[%d]'
 
 # fzf-tab previews
-zstyle ':fzf-tab:complete:cd:*'  fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
-zstyle ':fzf-tab:complete:*'     fzf-preview 'bat --color=always $realpath 2>/dev/null | head -50'
+zstyle ':fzf-tab:complete:cd:*'          fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
+zstyle ':fzf-tab:complete:__zoxide_z:*'  fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
+zstyle ':fzf-tab:complete:*'             fzf-preview 'bat --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:*'              switch-group ',' '.'
 
 # ── fzf ────────────────────────────────────────────────────────

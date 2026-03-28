@@ -1,178 +1,191 @@
-# Catppuccin Macchiato palette
-palette = "catppuccin_macchiato"
-
-[palettes.catppuccin_macchiato]
-rosewater = "#f4dbd6"
-flamingo  = "#f0c6c6"
-pink      = "#f5bde6"
-mauve     = "#c6a0f6"
-red       = "#ed8796"
-maroon    = "#ee99a0"
-peach     = "#f5a97f"
-yellow    = "#eed49f"
-green     = "#a6da95"
-teal      = "#8bd5ca"
-sky       = "#91d7e3"
-sapphire  = "#7dc4e4"
-blue      = "#8aadf4"
-lavender  = "#b7bdf8"
-text      = "#cad3f5"
-subtext1  = "#b8c0e0"
-subtext0  = "#a5adcb"
-overlay2  = "#939ab7"
-overlay1  = "#8087a2"
-overlay0  = "#6e738d"
-surface2  = "#5b6078"
-surface1  = "#494d64"
-surface0  = "#363a4f"
-base      = "#24273a"
-mantle    = "#1e2030"
-crust     = "#181926"
+"$schema" = 'https://starship.rs/config-schema.json'
 
 format = """
+[](surface0)\
 $os\
 $username\
 $hostname\
+[ ](bg:surface0)\
+[](bg:peach fg:surface0)\
 $directory\
+[](fg:peach bg:green)\
 $git_branch\
-$git_state\
 $git_status\
-$fill\
+[](fg:green bg:teal)\
 $c\
 $rust\
 $golang\
 $nodejs\
+$php\
+$java\
+$kotlin\
+$haskell\
 $python\
 $terraform\
+[](fg:teal bg:blue)\
 $docker_context\
-$cmd_duration\
+[](fg:blue bg:lavender)\
 $time\
-$line_break\
-$character"""
+[ ](fg:lavender)\
+$line_break$character"""
+
+palette = 'catppuccin_mocha'
+
+[palettes.catppuccin_mocha]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+orange = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay2 = "#9399b2"
+overlay1 = "#7f849c"
+overlay0 = "#6c7086"
+surface2 = "#585b70"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"
 
 [os]
 disabled = false
-style    = "bold blue"
+style = "bg:surface0 fg:text"
 
 [os.symbols]
-Linux   = " "
-Ubuntu  = " "
-Debian  = " "
-Fedora  = " "
-Alpine  = " "
-Arch    = " "
-Windows = " "
-Macos   = " "
+Windows = "󰍲"
+Ubuntu = "󰕈"
+SUSE = ""
+Raspbian = "󰐿"
+Mint = "󰣭"
+Macos = ""
+Manjaro = ""
+Linux = "󰌽"
+Gentoo = "󰣨"
+Fedora = "󰣛"
+Alpine = ""
+Amazon = ""
+Android = ""
+Arch = "󰣇"
+Artix = "󰣇"
+CentOS = ""
+Debian = "󰣚"
+Redhat = "󱄛"
+RedHatEnterprise = "󱄛"
 
 [username]
-show_always = false
-format      = "[$user]($style) "
-style_user  = "bold blue"
-style_root  = "bold red"
+show_always = true
+style_user = "bg:surface0 fg:text"
+style_root = "bg:surface0 fg:text"
+format = '[ $user]($style)'
 
 [hostname]
-ssh_only = true
-format   = "[@$hostname]($style) "
-style    = "bold green"
+format = "[@$hostname]($style)"
+style = "bg:surface0 fg:text"
+
 
 [directory]
-style              = "bold sapphire"
-truncation_length  = 4
-truncate_to_repo   = true
-substitutions      = { "~/Downloads" = " ", "~/Music" = "󰝚 ", "~/Developer" = "󰲋 ", "~/Documents" = " ", "~/Pictures" = " " }
+style = "fg:mantle bg:peach"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[directory.substitutions]
+"Documents" = "󰈙 "
+"Downloads" = " "
+"Music" = "󰝚 "
+"Pictures" = " "
+"Developer" = "󰲋 "
 
 [git_branch]
-format = "[$symbol$branch]($style) "
-symbol = " "
-style  = "bold mauve"
-
-[git_state]
-format = '\([$state( $progress_current/$progress_total)]($style)\) '
-style  = "bold yellow"
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol $branch ](fg:base bg:green)]($style)'
 
 [git_status]
-format      = "([$all_status$ahead_behind]($style) )"
-style       = "bold red"
-ahead       = "⇡${count}"
-behind      = "⇣${count}"
-diverged    = "⇕⇡${ahead_count}⇣${behind_count}"
-untracked   = "?${count}"
-modified    = "!${count}"
-staged      = "+${count}"
-deleted     = "✘${count}"
-stashed     = "\\$${count}"
-
-[fill]
-symbol = " "
-
-[c]
-symbol = " "
-style  = "bold overlay2"
-format = "[$symbol($version)]($style) "
-
-[rust]
-symbol = " "
-style  = "bold peach"
-format = "[$symbol($version)]($style) "
-
-[golang]
-symbol = " "
-style  = "bold sky"
-format = "[$symbol($version)]($style) "
+style = "bg:teal"
+format = '[[($all_status$ahead_behind )](fg:base bg:green)]($style)'
 
 [nodejs]
-symbol = " "
-style  = "bold green"
-format = "[$symbol($version)]($style) "
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
-[python]
-symbol   = " "
-style    = "bold yellow"
-format   = "[$symbol$pyenv_prefix($version)(\\($virtualenv\\))]($style) "
+[c]
+symbol = " "
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
+
+[rust]
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
+
+[golang]
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [php]
-symbol = " "
-style  = "bold overlay2"
-format = "[$symbol($version)]($style) "
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [java]
-symbol = " "
-style  = "bold red"
-format = "[$symbol($version)]($style) "
+symbol = " "
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [kotlin]
-symbol = " "
-style  = "bold mauve"
-format = "[$symbol($version)]($style) "
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [haskell]
-symbol = " "
-style  = "bold mauve"
-format = "[$symbol($version)]($style) "
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
+
+[python]
+symbol = ""
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [terraform]
-symbol = "󱁢 "
-style  = "bold mauve"
-format = "[$symbol$workspace]($style) "
+symbol = "󱁢"
+style = "bg:teal"
+format = '[[ $symbol( $version) ](fg:base bg:teal)]($style)'
 
 [docker_context]
-symbol = " "
-style  = "bold blue"
-format = "[$symbol$context]($style) "
-only_with_files = true
-
-[cmd_duration]
-min_time = 2000
-format   = "[$duration]($style) "
-style    = "bold yellow"
+symbol = ""
+style = "bg:mantle"
+format = '[[ $symbol( $context) ](fg:#83a598 bg:color_bg3)]($style)'
 
 [time]
-disabled    = false
-format      = "[$time]($style) "
-style       = "bold overlay1"
-time_format = "%H:%M"
+disabled = false
+time_format = "%R"
+style = "bg:peach"
+format = '[[  $time ](fg:mantle bg:lavender)]($style)'
+
+[line_break]
+disabled = false
 
 [character]
-success_symbol = "[❯](bold green)"
-error_symbol   = "[❯](bold red)"
-vimcmd_symbol  = "[❮](bold mauve)"
+disabled = false
+success_symbol = '[](bold fg:green)'
+error_symbol = '[](bold fg:red)'
+vimcmd_symbol = '[](bold fg:creen)'
+vimcmd_replace_one_symbol = '[](bold fg:lavender)'
+vimcmd_replace_symbol = '[](bold fg:lavender)'
+vimcmd_visual_symbol = '[](bold fg:lavender)'
