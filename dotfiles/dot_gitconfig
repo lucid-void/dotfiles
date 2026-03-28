@@ -1,0 +1,38 @@
+[user]
+  name  = lucid-vois
+  email = 74971817+lucid-void@users.noreply.github.com
+
+[core]
+  editor     = nvim
+  pager      = cat
+  autocrlf   = input
+
+[init]
+  defaultBranch = main
+
+[push]
+  autoSetupRemote = true
+
+[pull]
+  rebase = true
+
+[rebase]
+  autoStash = true
+
+[diff]
+  tool = nvim
+
+[merge]
+  tool = nvim
+
+[alias]
+  st  = status -sb
+  lg  = log --oneline --graph --decorate --all
+  lga = log --oneline --graph --decorate --all --author-date-order
+  co  = checkout
+  br  = branch
+  cp  = cherry-pick
+  undo = reset --soft HEAD~1
+
+[color]
+  ui = auto

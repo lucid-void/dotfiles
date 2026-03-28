@@ -1,0 +1,11 @@
+# Tools referenced by scripts but not deployed as dotfiles
+vscode/extensions.txt
+
+# nvim plugin lockfile — each machine manages its own
+.config/nvim/lazy-lock.json
+
+# GUI terminal configs — desktop only
+{{ if not .isDesktop }}
+.config/alacritty
+.config/ghostty
+{{ end }}

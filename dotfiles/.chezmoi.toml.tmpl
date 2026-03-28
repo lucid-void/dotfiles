@@ -1,0 +1,7 @@
+{{- $isDesktop := false -}}
+{{- if not (env "CODESPACES") -}}
+{{-   $isDesktop = promptBoolOnce . "isDesktop" "Desktop machine?" -}}
+{{- end -}}
+
+[data]
+  isDesktop = {{ $isDesktop }}

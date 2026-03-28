@@ -1,0 +1,14 @@
+{
+  "files.associations": {
+    "dot_zshrc*":         "shellscript",
+    "dot_zshenv*":        "shellscript",
+    "dot_gitconfig*":     "properties",
+    ".chezmoi.toml.tmpl": "toml",
+    "*.toml.tmpl":        "toml",
+    "*.sh.tmpl":          "shellscript",
+    "*.json.tmpl":        "json",
+    "modify_*":           "shellscript",
+    "run_once_*":         "shellscript",
+    "run_onchange_*":     "shellscript"
+  }
+}
