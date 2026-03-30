@@ -13,10 +13,14 @@ packer          = "1.15.0"
 lazygit         = "0.59.0"
 gdu             = "5.33.0"
 bottom          = "0.12.3"
-rust            = "1.93.1"
-python          = "system"
+fastfetch        = "latest"
+
+python          = "latest"
 pipx            = "1.8.0"
 ansible         = "13.4.0"
+
+rust            = "1.93.1"
 "cargo:pokeget" = "1.6.7"
-fastfetch        = "latest"
+
+node = "latest"
 claude           = "latest"
