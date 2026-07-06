@@ -8,4 +8,5 @@ vscode/extensions.txt
 {{ if not .isDesktop }}
 .config/alacritty
 .config/ghostty
+.local/share/applications
 {{ end }}

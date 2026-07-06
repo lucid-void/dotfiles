@@ -76,6 +76,29 @@ Every new Codespace will then bootstrap the full environment on creation.
 
 ---
 
+## AdNauseam (Brave)
+
+The Brave desktop entry is configured to load AdNauseam as an unpacked extension with MV2 support. The extension files are not tracked in this repo — install them once after `chezmoi apply`:
+
+```bash
+cd /tmp
+curl -L https://github.com/dhowe/AdNauseam/releases/latest/download/adnauseam.zip -o adnauseam.zip
+unzip adnauseam.zip -d adnauseam_extracted
+
+# move the folder that contains manifest.json
+mv adnauseam_extracted/<version-folder> ~/.local/share/adnauseam
+```
+
+Brave will load AdNauseam automatically on next launch. No manual dev mode toggle required.
+
+If Flatpak's sandbox blocks access to the path, run once:
+
+```bash
+flatpak override --user com.brave.Browser --filesystem=~/.local/share/adnauseam
+```
+
+---
+
 ## Updating
 
 Pull changes and re-apply:
