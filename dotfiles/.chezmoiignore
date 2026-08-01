@@ -10,3 +10,16 @@ vscode/extensions.txt
 .config/ghostty
 .local/share/applications
 {{ end }}
+
+# --- begin: hyprland UI layer (feat/hyprland-ui) ---
+# Hyprland/quickshell desktop layer — meaningless on shell-only hosts (WSL, VMs, CI)
+{{ if not .isDesktop }}
+.config/hypr
+.config/fish
+{{ end }}
+
+# Generated at runtime — never manage these, they are derived state.
+# matugen rewrites both on every wallpaper change (see ~/.config/matugen/config.toml).
+.config/hypr/hyprland/colors.lua
+.config/hypr/hyprlock/colors.conf
+# --- end: hyprland UI layer ---
