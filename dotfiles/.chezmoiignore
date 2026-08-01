@@ -16,7 +16,17 @@ vscode/extensions.txt
 {{ if not .isDesktop }}
 .config/hypr
 .config/fish
+.config/VSCodium
 {{ end }}
+
+# VSCodium runtime state — never manage. Only User/settings.json and
+# User/keybindings.json are tracked; everything else here is machine-local
+# (globalStorage 636K, workspaceStorage 744K, History 2.1M).
+.config/VSCodium/User/globalStorage
+.config/VSCodium/User/workspaceStorage
+.config/VSCodium/User/History
+.config/VSCodium/User/sync
+.config/VSCodium/User/chatLanguageModels.json
 
 # Generated at runtime — never manage these, they are derived state.
 # matugen rewrites both on every wallpaper change (see ~/.config/matugen/config.toml).

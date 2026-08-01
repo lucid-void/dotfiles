@@ -20,6 +20,8 @@ What that leaves:
 | `.config/hypr/custom/keybinds.lua` | 41 lines changed — HJKL focus/move binds |
 | `.config/hypr/hypridle.conf` | idle timeouts raised to 30/45/60 min from upstream's 5/10/15 |
 | `.config/fish/conf.d/fish_frozen_key_bindings.fish` | not present in upstream at all |
+| `.config/alacritty/alacritty.toml` | **this host's live config — diverges from `main`, see below** |
+| `.config/VSCodium/User/{settings,keybindings}.json` | editor prefs; runtime state excluded |
 
 Deliberately **not** tracked, because they are upstream-unmodified:
 `.config/fish/config.fish`, `.config/fish/auto-Hypr.fish`, all of `.config/matugen/`,
@@ -95,5 +97,23 @@ Version matugen *templates* if they are ever customised — never the outputs.
   keep the merge mechanical.
 - **`.config/starship.toml` differs between `main` and this host and was left untouched.** Decide
   which version wins during the rework.
+- **`.config/alacritty/alacritty.toml` is overwritten on this branch** with the live desktop
+  version. `main`'s stays intact on `main`. The two are ~117 lines apart and were never in
+  conflict — chezmoi has never been applied on this host, so `main`'s version was never deployed
+  here and the live file came from the CachyOS/end-4 install:
+
+  | | `main` | this branch (live desktop) |
+  |---|---|---|
+  | Font | MesloLGS NF, explicit bold/italic/offsets | end-4 / CachyOS defaults |
+  | Theme | imports `catppuccin-macchiato.toml` | none |
+  | Extras | — | `[general]` `working_directory`, `live_config_reload` |
+
+  `catppuccin-macchiato.toml` is still tracked but is **no longer imported** by the branch's
+  `alacritty.toml`, so it deploys as an inert file until the rework resolves this.
+  `alacritty.toml.197afdd6.bak` (end-4 installer detritus) is deliberately not tracked.
+- **VSCodium is guarded desktop-only.** If you want editor settings on WSL too, move
+  `.config/VSCodium` out of the `{{ if not .isDesktop }}` block during the rework. Note
+  `settings.json` contains Arch-specific paths (`/usr/lib/qt6/qml`, `/usr/bin/qmlls6`) that are
+  inert but meaningless elsewhere.
 - This branch reuses the existing `isDesktop` variable rather than introducing a host-class
   variable. If the rework adds finer-grained host classes, the guards above should move to it.
