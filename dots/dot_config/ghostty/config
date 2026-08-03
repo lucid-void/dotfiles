@@ -1,12 +1,11 @@
 # Ghostty — desktop only.
 #
-# Deliberately kept in step with alacritty.toml: same font, same size, same
-# padding, same theme. Whichever terminal you open should look identical.
+# Deliberately kept in step with alacritty.toml and kitty/kitty.conf: same
+# font, same size, same padding, same theme. Whichever terminal you open
+# should look identical.
 #
-# ⚠️ NOT VALIDATED. Ghostty was not installed on the machine this was written on,
-# so these keys were not checked against a real binary. Verify once with:
-#     ghostty +show-config
-# which prints the effective config and complains about unrecognised keys.
+# Validated against a real binary (ghostty 1.3.1): `ghostty +validate-config`
+# exits clean and `ghostty +show-config` shows no unrecognised keys.
 #
 # TERM is left alone here too. Ghostty sets TERM=xterm-ghostty and ships its own
 # terminfo; remote hosts almost never have that entry, which is handled by
@@ -22,3 +21,26 @@ window-padding-x = 2
 window-padding-y = 2
 
 mouse-hide-while-typing = true
+
+# Selecting text also copies it to the system clipboard, not just the
+# selection (middle-click-paste) clipboard. Plain `true` only does the
+# latter here — `clipboard` does both. Matches alacritty's
+# `selection.save_to_clipboard = true` and kitty's `copy_on_select clipboard`.
+copy-on-select = clipboard
+
+# No clean line-count equivalent to alacritty's `history = 50000` — ghostty
+# measures scrollback in bytes, not lines. 10,000,000 (~10MB) is ghostty's own
+# default; set explicitly here so a future ghostty version changing its
+# default doesn't silently change this too.
+scrollback-limit = 10000000
+
+# See-through background. Same value as alacritty's `window.opacity` and
+# kitty's `background_opacity` — but on Linux/GTK this is known-broken
+# upstream: GTK's scene graph blends the semi-transparent pixels against
+# GTK's own opaque background *before* the compositor ever sees real alpha,
+# so the window just looks brighter, never actually see-through. Confirmed
+# against kitty (works correctly, same value, same Hyprland blur rule) side
+# by side on this host. Still open upstream as of writing:
+# https://github.com/ghostty-org/ghostty/issues/3449 — no workaround, kept
+# set anyway so it does the right thing the day upstream fixes it.
+background-opacity = 0.5

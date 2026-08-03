@@ -14,9 +14,10 @@
 #   main  — dotfiles          (no privileges required)
 #   post  — login shell       (needs root/passwordless sudo; skipped otherwise)
 #
-# Tools come from the packages/ lists, not from a version manager. On a non-Arch
-# host the pre phase installs only the four prerequisites below, so you get the
-# dotfiles and nothing else.
+# Tools come from the packages/ lists, not from a version manager. Arch and
+# Debian/Ubuntu both get the full headless tool set; on any other distro the pre
+# phase installs only the four prerequisites below, so you get the dotfiles and
+# nothing else.
 #
 # Only "main" is required. The pre/post phases no-op with a warning when
 # privileges are unavailable, so the script still succeeds on locked-down hosts.
@@ -51,11 +52,24 @@ warn() { printf '\033[1;33m warning:\033[0m %s\n' "$*" >&2; }
 # ── Privilege detection ────────────────────────────────────────
 # SUDO is the command prefix to run something as root, or "" if we cannot.
 # `sudo -n` never prompts for a password, so an unattended run can't hang.
+#
+# On an interactive desktop run without passwordless sudo, we ask once
+# (`sudo -v`) and keep the credential alive with a background refresher for the
+# rest of the script, instead of checking `sudo -n` (and silently skipping)
+# at every privileged step. This only ever fires when IS_DESKTOP is true *and*
+# stdin is a TTY, so headless/Codespaces/CI runs keep the original zero-prompt
+# behaviour untouched.
 SUDO=""
 HAVE_ROOT=true
+SUDO_KEEPALIVE_PID=""
 if [[ "$(id -u)" -ne 0 ]]; then
   if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     SUDO="sudo -n"
+  elif [[ "$IS_DESKTOP" == true && -t 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -v; then
+    SUDO="sudo"
+    ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 60; done ) &
+    SUDO_KEEPALIVE_PID=$!
+    trap '[[ -n "$SUDO_KEEPALIVE_PID" ]] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
   else
     HAVE_ROOT=false
   fi
@@ -99,15 +113,20 @@ if [[ ${#missing[@]} -gt 0 ]]; then
       esac
     done
 
+    # Each install is `|| warn` rather than bare: under `set -e` an unguarded
+    # failure here (network hiccup, transient mirror error) would abort the
+    # entire script, contradicting "nothing in the pre phase is fatal".
     if command -v apt-get >/dev/null 2>&1; then
-      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq
-      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}"
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+        || warn "apt-get update failed — prerequisite install may be stale"
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}" \
+        || warn "apt-get install failed — install manually: ${pkgs[*]}"
     elif command -v dnf >/dev/null 2>&1; then
-      $SUDO dnf install -y "${pkgs[@]}"
+      $SUDO dnf install -y "${pkgs[@]}" || warn "dnf failed — install manually: ${pkgs[*]}"
     elif command -v pacman >/dev/null 2>&1; then
-      $SUDO pacman -Sy --noconfirm --needed "${pkgs[@]}"
+      $SUDO pacman -Sy --noconfirm --needed "${pkgs[@]}" || warn "pacman failed — install manually: ${pkgs[*]}"
     elif command -v apk >/dev/null 2>&1; then
-      $SUDO apk add --no-cache "${pkgs[@]}"
+      $SUDO apk add --no-cache "${pkgs[@]}" || warn "apk failed — install manually: ${pkgs[*]}"
     else
       warn "unrecognised package manager — install manually: ${pkgs[*]}"
     fi
@@ -141,11 +160,161 @@ collect_pkgs() {
   done
 }
 
+# ── Non-Arch (apt) package install ──────────────────────────────
+# Full parity with headless.txt for Debian/Ubuntu VMs and Codespaces. Package
+# names for the straightforward apt-get case live in packages/headless-apt.txt;
+# a handful of headless.txt tools have no apt package at all (starship, atuin,
+# rustup, yq, lazygit, gdu, bottom, fastfetch, gh) and are fetched below via
+# official installers, GitHub release binaries, or a third-party apt repo.
+# Everything here is idempotent (command -v guarded) and never fatal — one
+# tool failing to install warns and the run continues.
+
+# Fetch a single-binary GitHub release into ~/.local/bin.
+#   $1 owner/repo
+#   $2 release asset filename — include a literal %V% where the tag's version
+#      number (no leading "v") appears, for assets whose name embeds it
+#   $3 command name to install as
+#   $4 basename of the binary inside the archive, if different from $3
+# Every fallible step below is guarded (`if`, or a trailing `|| ...`) rather
+# than bare: under `set -e`, an unguarded failure — even a `cmd1 && cmd2`
+# statement where cmd1 legitimately returns false, like the very next line —
+# would abort the *entire* install.sh, not just this one optional tool.
+fetch_github_release_binary() {
+  local repo="$1" asset="$2" dest="$3" inner_name="${4:-$3}"
+  if command -v "$dest" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local url tmp tag
+  if [[ "$asset" == *%V%* ]]; then
+    if ! tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest" | sed 's#.*/##')" || [[ -z "$tag" ]]; then
+      warn "could not resolve latest release for $repo — install $dest manually"
+      return 1
+    fi
+    asset="${asset//%V%/${tag#v}}"
+    url="https://github.com/$repo/releases/download/$tag/$asset"
+  else
+    url="https://github.com/$repo/releases/latest/download/$asset"
+  fi
+
+  tmp="$(mktemp -d)"
+  if ! curl -fsSL -o "$tmp/$asset" "$url"; then
+    warn "download failed for $dest ($url) — install manually"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  mkdir -p "$HOME/.local/bin"
+  case "$asset" in
+    *.tar.gz|*.tgz)
+      if ! tar -xzf "$tmp/$asset" -C "$tmp"; then
+        warn "could not extract $asset — install $dest manually"
+        rm -rf "$tmp"
+        return 1
+      fi
+      local found
+      found="$(find "$tmp" -type f -name "$inner_name" | head -1)"
+      if [[ -z "$found" ]]; then
+        warn "could not find $inner_name inside $asset — install $dest manually"
+        rm -rf "$tmp"
+        return 1
+      fi
+      install -m 755 "$found" "$HOME/.local/bin/$dest" \
+        || warn "could not install $dest to ~/.local/bin"
+      ;;
+    *)
+      install -m 755 "$tmp/$asset" "$HOME/.local/bin/$dest" \
+        || warn "could not install $dest to ~/.local/bin"
+      ;;
+  esac
+  rm -rf "$tmp"
+}
+
+install_apt_headless() {
+  mkdir -p "$HOME/.local/bin"
+
+  if ! $HAVE_ROOT; then
+    warn "no root or passwordless sudo — install these yourself, then re-run:"
+    warn "  apt-get install $(read_pkg_list "$PKG_DIR/headless-apt.txt" | tr '\n' ' ')"
+  else
+    PKGS=()
+    collect_pkgs "$PKG_DIR/headless-apt.txt"
+
+    # GitHub CLI and HashiCorp both ship their own apt repos; add each only
+    # when its tool is missing, so re-runs don't re-add or re-fetch keys. Each
+    # block is one `&&` chain used as an `if` condition — under `set -e` that's
+    # the only way a failure partway (bad network, permission edge case) stops
+    # just this repo add instead of aborting the whole script.
+    if ! command -v gh >/dev/null 2>&1; then
+      if $SUDO mkdir -p -m 755 /etc/apt/keyrings \
+        && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+             | $SUDO tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
+        && $SUDO chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+             | $SUDO tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+      then
+        PKGS+=(gh)
+      else
+        warn "could not add the GitHub CLI apt repo — install gh manually"
+      fi
+    fi
+    log "Installing ${#PKGS[@]} packages from $(basename "$PKG_DIR/headless-apt.txt") (+ gh repo as needed)"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+      || warn "apt-get update failed — package install may be stale"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PKGS[@]}" \
+      || warn "apt-get failed — check the package names in $PKG_DIR/headless-apt.txt"
+  fi
+
+  # bat/fd-find install their binaries as batcat/fdfind on Debian — symlink
+  # the names the rest of this repo (aliases, FZF_DEFAULT_COMMAND) expects.
+  # `|| true`: neither symlink existing is a normal, non-fatal outcome (e.g.
+  # apt install above failed), not a reason to abort the rest of the script.
+  if ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
+    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat" || true
+  fi
+  if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd" || true
+  fi
+
+  # The pacman package "yq" is kislyuk's python-yq (a jq wrapper), not
+  # mikefarah's go-yq — install the same one via pipx for parity.
+  if ! command -v yq >/dev/null 2>&1 && command -v pipx >/dev/null 2>&1; then
+    pipx install yq >/dev/null 2>&1 || warn "pipx install yq failed — install manually"
+  fi
+
+  # No apt package at all: official installers, unprivileged. Each is a
+  # complete `if ... ; then ... || warn; fi` — the trailing `|| warn` matters
+  # under `set -e`: without it, a failed install (network down) would be the
+  # last command run and would abort the whole script.
+  if ! command -v starship >/dev/null 2>&1; then
+    curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir "$HOME/.local/bin" >/dev/null \
+      || warn "starship install failed — install manually"
+  fi
+  if ! command -v atuin >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -fsSL https://setup.atuin.sh | bash >/dev/null 2>&1 \
+      || warn "atuin install failed — install manually"
+  fi
+  if ! command -v rustup >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y >/dev/null 2>&1 \
+      || warn "rustup install failed — install manually"
+  fi
+
+  # No apt package at all: GitHub release binaries, unprivileged. `|| true` on
+  # each call: the function already warns internally on failure, this just
+  # stops that failure's exit status from aborting the rest of the script.
+  fetch_github_release_binary jesseduffield/lazygit "lazygit_%V%_Linux_x86_64.tar.gz" lazygit || true
+  fetch_github_release_binary dundee/gdu "gdu_linux_amd64.tgz" gdu gdu_linux_amd64 || true
+  fetch_github_release_binary ClementTsang/bottom "bottom_x86_64-unknown-linux-gnu.tar.gz" btm || true
+  fetch_github_release_binary fastfetch-cli/fastfetch "fastfetch-linux-amd64.tar.gz" fastfetch || true
+  # No apt package, not on crates.io or PyPI either — GitHub release binary is
+  # the only distribution channel. Needed by the fastfetch greeting's logo
+  # source (`pokeget sylveon --hide-name` in dot_config/fastfetch/config.jsonc).
+  fetch_github_release_binary talwat/pokeget-rs "pokeget-Linux-x86_64.tar.gz" pokeget || true
+}
+
 if [[ "$SKIP_PACKAGES" == true ]]; then
   log "Skipping package lists (--no-packages)"
-elif ! command -v pacman >/dev/null 2>&1; then
-  log "Not an Arch host — skipping package lists (pacman-only)"
-else
+elif command -v pacman >/dev/null 2>&1; then
   PKGS=()
   pkg_files=("$PKG_DIR/headless.txt")
   if [[ "$IS_DESKTOP" == true ]]; then
@@ -165,6 +334,11 @@ else
     $SUDO pacman -Syu --noconfirm --needed "${PKGS[@]}" \
       || warn "pacman failed — check the package names in $PKG_DIR"
   fi
+elif command -v apt-get >/dev/null 2>&1; then
+  log "Debian/Ubuntu host — installing headless-apt.txt in place of the pacman lists"
+  install_apt_headless
+else
+  log "Not an Arch or Debian/Ubuntu host — skipping package lists (pacman/apt-get only)"
 fi
 
 # ── AUR packages ───────────────────────────────────────────────

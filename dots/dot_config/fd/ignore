@@ -1,0 +1,23 @@
+# fd — global ignore file, read automatically from $XDG_CONFIG_HOME/fd/ignore.
+# No env var or flag needed to enable it; unlike ripgrep's config this is a
+# location fd checks on its own.
+#
+# Format is .gitignore syntax. .gitignore is still respected on top of this,
+# so these lines only matter outside a git repo, or for git isn't tracking
+# them anyway.
+#
+# Applies to every fd invocation, including the `find` alias in .zshrc, the
+# FZF_DEFAULT_COMMAND / FZF_ALT_C_COMMAND file pickers, and fzf-tab's cd
+# preview. The two fzf commands used to carry their own `--exclude .git`
+# flag for this; centralised here so plain `fd`/`find` gets the same
+# protection instead of only the fzf-driven pickers.
+
+# git doesn't gitignore its own .git directory, so without this fd walks
+# thousands of loose objects and packfiles whenever --hidden is set.
+.git/
+
+# High-volume directories that are rarely what you meant, for searches run
+# outside a repo (inside one, .gitignore already covers these).
+node_modules/
+.venv/
+target/

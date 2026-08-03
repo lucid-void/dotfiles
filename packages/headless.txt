@@ -67,7 +67,8 @@ zoxide
 
 # ── CLI utilities ──────────────────────────────────────────────
 jq
-yq
+# regular yq conflicts with go-yq required for the hyprland config
+go-yq
 
 # ── System monitors ────────────────────────────────────────────
 # btop and bottom overlap; bottom is what .zshrc's toolset carried, btop was
@@ -80,22 +81,16 @@ gdu
 # The greeting also wants pokeget, which is AUR-only — see headless-aur.txt.
 fastfetch
 
-# ── Infrastructure ─────────────────────────────────────────────
-# Aliased in .zshrc as tf/tfi/tfp/tfa and ap/apv.
-terraform
-packer
-ansible
-
 # ── Languages ──────────────────────────────────────────────────
-# rustup rather than the `rust` package: it manages toolchains, which is the
-# part of mise worth keeping here. Run `rustup default stable` once.
-# These are single system-wide versions now — there is no per-project runtime
-# switching any more.
+# Plain `rust` rather than rustup: a single system-wide toolchain on its repo
+# version, no manager to activate — same as python/node below, no manual step
+# needed after install. These are single system-wide versions now — there is
+# no per-project runtime switching any more.
 python
 python-pipx
 nodejs
 npm
-rustup
+rust
 
 # ── Arch housekeeping ──────────────────────────────────────────
 # paccache (cache pruning) and checkupdates (safe update check).

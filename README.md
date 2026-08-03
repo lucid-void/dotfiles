@@ -10,9 +10,10 @@ There is exactly one axis of divergence: the `isDesktop` flag. **Desktop is the 
 |---|---|---|
 | **Use for** | Laptop, workstation | VMs, containers, Codespaces, remote nodes |
 | **Install with** | `bash install.sh` | `bash install.sh --headless` |
-| **GUI terminal configs**<br>alacritty, ghostty | ✅ deployed | ❌ skipped |
+| **GUI terminal configs**<br>alacritty, ghostty, kitty | ✅ deployed | ❌ skipped |
 | **Desktop entries**<br>`.local/share/applications` | ✅ deployed | ❌ skipped |
 | **System packages** (Arch) | all four lists | the two `headless` lists |
+| **System packages** (Debian/Ubuntu) | `headless-apt.txt` only — desktop apps stay Arch-only | `headless-apt.txt` |
 | **Everything else**<br>zsh, tmux, nvim, starship, git, ssh | ✅ | ✅ |
 
 The exclusions live in [`dots/.chezmoiignore`](dots/.chezmoiignore); the flag itself is set in [`dots/.chezmoi.toml.tmpl`](dots/.chezmoi.toml.tmpl).
@@ -26,14 +27,13 @@ The flag is written into `~/.config/chezmoi/chezmoi.toml` on first install and r
 | zsh + zinit | Shell with turbo-loaded plugins |
 | starship | Prompt |
 | tmux | Multiplexer |
-| neovim | Editor |
+| neovim + AstroNvim | Editor |
 | VSCodium | GUI editor (desktop only) |
 | eza, bat, fd, ripgrep, fzf, zoxide | Modern CLI replacements |
 | atuin | SQLite shell history — fuzzy search, per-dir filtering, sync (Ctrl-R) |
 | carapace | Completion engine covering ~1000 CLIs |
 | lazygit | Git UI |
 | delta | Syntax-highlighting pager for `git diff` / `git log` |
-| terraform, ansible, packer | Infrastructure tooling |
 | fastfetch + pokeget | System info greeting |
 
 All themeable tools use **Catppuccin Macchiato**.
@@ -68,17 +68,23 @@ bash install.sh --headless
 
 ## What `install.sh` does
 
-Three phases. Only the middle one is required — the other two need root or **passwordless** sudo (`sudo -n`, so an unattended run can never hang on a password prompt) and are skipped with a warning if that isn't available.
+Three phases. Only the middle one is required — the other two need root and are skipped with a warning if that isn't available.
 
 | Phase | Does | Needs root |
 |---|---|---|
-| **pre** | Installs missing prerequisites (`curl`, `git`, `zsh`, `tar`, + `fontconfig` on desktop) via apt/dnf/pacman/apk, then the `packages/` lists on Arch | yes — skipped if unavailable |
+| **pre** | Installs missing prerequisites (`curl`, `git`, `zsh`, `tar`, + `fontconfig` on desktop) via apt/dnf/pacman/apk, then the full `packages/` lists on Arch or Debian/Ubuntu | yes — skipped if unavailable |
 | **main** | Installs chezmoi (if the package list didn't), applies dotfiles | no |
 | **post** | Adds zsh to `/etc/shells`, `chsh` to zsh, pre-warms zinit | yes — skipped if unavailable |
 
 The prerequisite step only runs when something is actually missing, so it is a no-op on an already-provisioned machine and won't touch your package manager unnecessarily.
 
 If a phase is skipped, the script prints exactly what to run by hand and still exits 0. Nothing in the pre phase is fatal — a package that fails to install warns and the run continues, since **main** is the phase that actually matters.
+
+**Root, without ever hanging on a password prompt.** Headless runs (VMs, Codespaces, CI)
+only ever use `sudo -n` — passwordless or nothing, so an unattended run can never block
+waiting for input. An interactive desktop run without passwordless sudo instead asks for
+the password **once** (`sudo -v`), then keeps that credential alive in the background for
+the rest of the script, instead of prompting-or-skipping at every privileged step.
 
 ---
 
@@ -88,17 +94,18 @@ Plain text, one package per line, `#` for comments. Live in [`packages/`](packag
 
 | List | Installed on | Source |
 |---|---|---|
-| [`packages/headless.txt`](packages/headless.txt) | every machine, desktop included | official repos, via `pacman` |
-| [`packages/headless-aur.txt`](packages/headless-aur.txt) | every machine, desktop included | AUR, via `paru` |
-| [`packages/desktop.txt`](packages/desktop.txt) | desktop only | official repos, via `pacman` |
-| [`packages/desktop-aur.txt`](packages/desktop-aur.txt) | desktop only | AUR, via `paru` |
+| [`packages/headless.txt`](packages/headless.txt) | every Arch machine, desktop included | official repos, via `pacman` |
+| [`packages/headless-apt.txt`](packages/headless-apt.txt) | every Debian/Ubuntu machine, desktop included | official repos, via `apt-get` |
+| [`packages/headless-aur.txt`](packages/headless-aur.txt) | every Arch machine, desktop included | AUR, via `paru` |
+| [`packages/desktop.txt`](packages/desktop.txt) | Arch desktop only | official repos, via `pacman` |
+| [`packages/desktop-aur.txt`](packages/desktop-aur.txt) | Arch desktop only | AUR, via `paru` |
 | [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store, via `ExtensionInstallForcelist` policy |
 
-Desktop installs all four; headless installs the two `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package.
+Desktop installs all four Arch lists; headless installs the two Arch `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package — those stay Arch/AUR-only, they're not part of the Debian/Ubuntu path.
 
-**These lists replaced mise.** Every tool that used to be pinned in `dot_config/mise/config.toml` is now a system package on its repo version — there is no per-tool pinning and no version manager to activate. `pacman -Syu` is the update path.
+**These lists replaced mise.** Every tool that used to be pinned in `dot_config/mise/config.toml` is now a system package on its repo version — there is no per-tool pinning and no version manager to activate. `pacman -Syu` is the update path on Arch.
 
-**Arch only.** The lists hold pacman package names, which don't carry over to apt/dnf/apk — on any other distro the whole step is skipped with a notice and you get the four cross-distro prerequisites alone. ⚠️ Since mise is gone, that now means **a non-Arch host installs the dotfiles and no tools** — see the mise section in [TODO.md](TODO.md).
+**Non-Arch parity.** On any host with `pacman`, the four Arch lists above are used. On a Debian/Ubuntu host (no `pacman`, but `apt-get`), `install.sh` installs `packages/headless-apt.txt` instead — full parity with `packages/headless.txt`'s tool set. Most names map straight to an apt package; `gh` comes from its own official apt repo (added automatically); `starship`, `atuin`, `rustup`, `lazygit`, `yq`, `gdu`, `bottom` and `fastfetch` have no apt package at all and are installed unprivileged into `~/.local/bin` via each project's official installer or GitHub release binary. `desktop.txt`/`desktop-aur.txt`/`headless-aur.txt` remain Arch/AUR-only — a Debian/Ubuntu host gets the headless tool set, not the desktop apps. On dnf (Fedora) or apk (Alpine) hosts the step is still skipped with a notice, same as before.
 
 Notes:
 
@@ -106,7 +113,7 @@ Notes:
 - `paru` is bootstrapped from `paru-bin` if no helper is present; an existing `paru` or `yay` is used as-is. The AUR step is **skipped when running as root**, since `makepkg` refuses to build as root — it needs a normal user with passwordless sudo.
 - On this host several `-aur` entries resolve from the `cachyos` / `chaotic-aur` binary repos instead of being built locally. On vanilla Arch paru builds them from the AUR — same names either way.
 - Skip the lists entirely with `bash install.sh --no-packages` (or `DOTFILES_SKIP_PACKAGES=1`) to get just the dotfiles.
-- A few packages need one manual step after install: `rustup default stable`, and `solaar` installs udev rules that want a reload or reboot.
+- `solaar` installs udev rules that want a reload or reboot after install.
 
 ---
 
@@ -142,6 +149,40 @@ Every new Codespace will then bootstrap the full environment on creation.
 
 ---
 
+## Terminals — alacritty, ghostty, kitty in lockstep
+
+All three ([`dots/dot_config/alacritty`](dots/dot_config/alacritty), [`dots/dot_config/ghostty`](dots/dot_config/ghostty), [`dots/dot_config/kitty`](dots/dot_config/kitty)) are deliberately kept identical: MesloLGS NF 14px, Catppuccin Macchiato, 2px padding, 50000-line scrollback (ghostty's is byte-based — set to 10MB, its own default, rather than an exact conversion), copy-on-select that writes to the system clipboard (not just the middle-click-paste selection), and `0.5` background opacity. Whichever one you open should look and behave the same.
+
+Background blur is a Hyprland compositor-side window rule, not a per-terminal config option (ghostty's own `background-blur` setting only works through KWin's global setting, per its docs — irrelevant here). This host's Hyprland rice ([`dots-hyprland`](https://github.com/end-4/dots-hyprland)/quickshell, not part of this repo) disables blur for every window by default (`hyprland/rules.lua`: `no_blur = true` for `class = ".*"`). [`dots/dot_config/hypr/custom/rules.lua`](dots/dot_config/hypr/custom/rules.lua) re-enables blur for the three terminal classes (`Alacritty`, `kitty`, `com.mitchellh.ghostty`), layered on top of the untouched upstream rice the same way `custom/general.lua` already is — confirmed applied (checked via an intentionally-invalid test key, which surfaced Hyprland's on-screen config-error banner, and a `rounding = 0` test, which visibly squared off a fresh window's corners).
+
+**Ghostty's transparency doesn't actually work on Linux, and that's not fixable from here.** Side-by-side against kitty at the same `0.5` opacity and the same blur rule, kitty is genuinely see-through and ghostty just looks slightly brighter. This is [a known, still-open upstream bug](https://github.com/ghostty-org/ghostty/issues/3449): GTK's scene graph blends ghostty's semi-transparent pixels against GTK's own opaque background *before* the Wayland compositor ever sees real per-pixel alpha, so no Hyprland-side rule can recover it — kitty and alacritty render directly via GL/EGL and aren't affected. `background-opacity` is left set in `ghostty/config` anyway so it does the right thing the day upstream fixes it.
+
+Each terminal's Catppuccin Macchiato values come from that project's own official port (`catppuccin/alacritty`, ghostty's built-in `theme = Catppuccin Macchiato`, `catppuccin/kitty`) rather than being forced to byte-for-byte match each other — the three ports don't always agree on secondary colors like the text-selection background, and that's expected.
+
+All three were validated against real binaries on this host: `alacritty --config-file ... -e true`, `ghostty +validate-config` / `+show-config`, and `kitty --config ... -e true` all report no errors or unrecognized keys.
+
+**kitty replaced a pre-existing, uncommitted `~/.config/kitty/kitty.conf`** that used fish, JetBrains Mono Nerd Font, and a theme generated by [quickshell](https://quickshell.outfoxxed.me/) (this host's Hyprland widget shell) — none of which match this repo's zsh/MesloLGS/static-Catppuccin conventions. That file was backed up to `kitty.conf.pre-dotfiles-backup` rather than deleted. Its companion kittens (`search.py`, `scroll_mark.py` — custom in-terminal search/scroll-to-mark bindings) were left in place since the tracked `kitty.conf` doesn't reference them; they're inert but harmless.
+
+---
+
+## AstroNvim — cloned, not vendored
+
+[`dots/run_once_install_astronvim.sh`](dots/run_once_install_astronvim.sh) clones [`AstroNvim/template`](https://github.com/AstroNvim/template) straight into `~/.config/nvim` during `chezmoi apply`, then strips its `.git`. Nothing under `dot_config/nvim/` is tracked in this repo — a prior vendored copy was removed because every file was still the untouched scaffold (each plugin spec had its `if true then return {} end` deactivation guard in place).
+
+Once real customization happens — `community.lua`, `lua/plugins/*`, `polish.lua` — track those specific files back in chezmoi, the same way `dot_config/VSCodium/User/settings.json` is tracked without vendoring all of VSCodium.
+
+**`run_once_` won't refire** if `~/.config/nvim` is deleted later on a host chezmoi already applied to — the fired-once state is tracked separately from the directory existing:
+
+```bash
+rm -rf ~/.config/nvim
+chezmoi state delete-bucket --bucket=scriptState
+chezmoi apply
+```
+
+Validated end-to-end on 2026-08-03: fresh clone, `nvim --headless "+Lazy! sync" +qa` bootstraps lazy.nvim and all 43 plugins with no errors, and `:checkhealth astronvim` reports clean.
+
+---
+
 ## Browsers + AdNauseam — desktop only
 
 Two browsers, both native AUR packages, both loading the same extension set.
@@ -174,6 +215,14 @@ chezmoi apply
 ```
 
 > Adding a second unpacked extension means appending to `--load-extension` as a comma-separated list of directories, not repeating the flag.
+
+### chromium-web-store re-enables the Web Store's install buttons
+
+ungoogled-chromium ships with Chrome Web Store integration stripped out, so its install/update buttons don't do anything by default. [`dots/run_once_install_chromium_web_store.sh.tmpl`](dots/run_once_install_chromium_web_store.sh.tmpl) installs [NeverDecaf/chromium-web-store](https://github.com/NeverDecaf/chromium-web-store) unpacked into `~/.local/share/chromium-web-store`, the same way as AdNauseam above, and it's added to the same shared `--load-extension` flag.
+
+Upstream documents installing this via an interactive step — flip `chrome://flags/#extension-mime-request-handling` to "Always prompt for install", then drag the released `.crx` onto the browser. Loading it unpacked skips that entirely: no flag flip, no manual drag, and it updates whenever the `run_once_` script re-fires the same way AdNauseam does (see below).
+
+A `.crx` is a small binary header glued in front of an ordinary zip. `unzip` finds the zip's central directory by scanning backward from EOF, so it extracts the extension fine — it just warns about the leading bytes and exits 1 even on success, so the script checks for `manifest.json` rather than the exit code.
 
 ### Web store extensions — force-installed by policy
 

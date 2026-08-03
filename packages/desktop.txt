@@ -6,18 +6,21 @@
 
 # ── Fonts ──────────────────────────────────────────────────────
 # fontconfig provides fc-cache, which run_once_install_fonts.sh calls after
-# dropping FiraCode Nerd Font and MesloLGS NF into ~/.local/share/fonts.
-# Those two are fetched by that script, so they are deliberately not here.
+# dropping MesloLGS NF into ~/.local/share/fonts. That font is fetched by
+# that script, so it is deliberately not here.
 # Noto covers everything the Nerd Font doesn't: CJK glyphs and colour emoji.
 fontconfig
 noto-fonts
 noto-fonts-emoji
 
 # ── Terminals ──────────────────────────────────────────────────
-# Both are configured under dot_config. Ghostty left the AUR and lives in
-# extra as of 1.3.x, so it belongs here rather than in desktop-aur.txt.
+# All three are configured under dot_config, kept in step with each other
+# (same font, theme, padding, scrollback, copy-on-select, opacity). Ghostty
+# left the AUR and lives in extra as of 1.3.x, so it belongs here rather than
+# in desktop-aur.txt.
 alacritty
 ghostty
+kitty
 
 # ── Desktop integration ────────────────────────────────────────
 # xdg-open, plus update-desktop-database for the browser entries installed by

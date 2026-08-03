@@ -1,0 +1,64 @@
+# Headless package list — Debian/Ubuntu equivalent of headless.txt, installed via
+# apt-get on any host with apt-get instead of pacman (VMs, Codespaces).
+#
+# One package per line, `#` starts a comment. Installed by install.sh with
+# `apt-get install -y --no-install-recommends`, so re-runs are cheap.
+#
+# Not a 1:1 name mapping for everything — a few headless.txt tools have no apt
+# package at all (starship, atuin, rustup, yq, lazygit, gdu, bottom, fastfetch,
+# gh) and are installed separately by install.sh via official installers,
+# GitHub release binaries, or a third-party apt repo. See install.sh's
+# "Non-Arch (apt) package install" section for those.
+
+# ── Toolchain ──────────────────────────────────────────────────
+build-essential
+git
+
+# ── Fetching and archives ──────────────────────────────────────
+curl
+wget
+tar
+unzip
+zip
+rsync
+
+# ── Shell and terminal ─────────────────────────────────────────
+zsh
+tmux
+less
+
+# ── Remote access ──────────────────────────────────────────────
+openssh-client
+
+# ── Docs ───────────────────────────────────────────────────────
+man-db
+manpages
+
+# ── Editor ─────────────────────────────────────────────────────
+neovim
+
+# ── Git ────────────────────────────────────────────────────────
+git-delta
+
+# ── Modern CLI replacements ────────────────────────────────────
+# bat and fd-find install their binaries as `batcat`/`fdfind` on Debian/Ubuntu —
+# install.sh symlinks them to `bat`/`fd` in ~/.local/bin after this list installs.
+eza
+bat
+fd-find
+ripgrep
+fzf
+zoxide
+
+# ── CLI utilities ──────────────────────────────────────────────
+jq
+
+# ── System monitors ────────────────────────────────────────────
+btop
+
+# ── Languages ──────────────────────────────────────────────────
+python3
+python3-venv
+pipx
+nodejs
+npm

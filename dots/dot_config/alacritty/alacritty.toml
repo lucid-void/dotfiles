@@ -38,6 +38,10 @@ style = "Bold Italic"
 [window]
 decorations = "full"
 dynamic_padding = true
+# See-through background. Same value as ghostty's `background-opacity` and
+# kitty's `background_opacity`. True blur is a Hyprland compositor concern
+# (window rules), not a per-terminal setting, and isn't configured here.
+opacity = 0.5
 
 [window.padding]
 x = 2
@@ -50,3 +54,9 @@ history = 50000
 
 [mouse]
 hide_when_typing = true
+
+# Selecting text also copies it to the system clipboard, not just the
+# primary (middle-click-paste) selection — matches ghostty's
+# `copy-on-select = clipboard` and kitty's `copy_on_select clipboard`.
+[selection]
+save_to_clipboard = true

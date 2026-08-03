@@ -12,4 +12,4 @@
   --disable-features=ExtensionManifestV2Unsupported keeps MV2 extensions
   (AdNauseam is MV2) loadable on Chromium builds that have started phasing MV2 out.
 */ -}}
---load-extension={{ .chezmoi.homeDir }}/.local/share/adnauseam --disable-features=ExtensionManifestV2Unsupported
+--load-extension={{ .chezmoi.homeDir }}/.local/share/adnauseam,{{ .chezmoi.homeDir }}/.local/share/chromium-web-store --disable-features=ExtensionManifestV2Unsupported

@@ -21,7 +21,7 @@ Icon=brave-origin
 Type=Application
 Categories=Network;WebBrowser;
 MimeType=application/pdf;application/rdf+xml;application/rss+xml;application/xhtml+xml;application/xhtml_xml;application/xml;image/gif;image/jpeg;image/png;image/webp;text/html;text/xml;x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/chromium;
-Actions=new-window;new-private-window;new-tor-window;
+Actions=new-window;new-private-window;
 
 [Desktop Action new-window]
 Name=New Window
@@ -30,7 +30,3 @@ Exec=/usr/bin/brave-origin {{ $flags }}
 [Desktop Action new-private-window]
 Name=New Incognito Window
 Exec=/usr/bin/brave-origin {{ $flags }} --incognito
-
-[Desktop Action new-tor-window]
-Name=New Private Window with Tor
-Exec=/usr/bin/brave-origin {{ $flags }} --tor

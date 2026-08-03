@@ -73,9 +73,11 @@ zinit wait lucid atload'_sudo_rebind' for OMZP::sudo
 zinit wait lucid for junegunn/fzf-git.sh
 
 # ── Prompt & tools ─────────────────────────────────────────────
-eval "$(starship init zsh)"
-eval "$(zoxide init zsh --cmd cd)"
-eval "$(fzf --zsh)"
+# Guarded so a host that's missing one of these (partial/failed package
+# install) degrades to a plain shell instead of erroring on every prompt.
+command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh --cmd cd)"
+command -v fzf >/dev/null 2>&1 && eval "$(fzf --zsh)"
 
 # thefuck spawns a Python interpreter at startup (~300ms), so it is loaded only
 # when actually installed. It is unmaintained upstream — pay-respects is the
@@ -150,21 +152,30 @@ unset _zcompdump
 zstyle ':completion:*' menu no
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
-zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':completion:*' list-separator '─'
+# group-name '' splits results by tag (e.g. "external command" vs "alias")
+# instead of one flat list, so fzf-tab renders one colored header per group.
+zstyle ':completion:*' group-name ''
+# Catppuccin Macchiato lavender, bold — the `:*' format (not `:descriptions')
+# is what fzf-tab reads for its group headers; `:descriptions' below is the
+# separate style compsys itself uses for plain-menu message lines.
+zstyle ':completion:*' format $'\e[1;38;2;183;189;248m── %d ──\e[0m'
+zstyle ':completion:*:descriptions' format $'\e[1;38;2;183;189;248m%d\e[0m'
 
 # fzf-tab previews
 zstyle ':fzf-tab:complete:cd:*'          fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:complete:__zoxide_z:*'  fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:complete:*'             fzf-preview 'bat --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:*'              switch-group ',' '.'
+# Press '/' inside a path completion to drill into the selected directory
+# without leaving the fzf-tab popup, instead of accept-then-retab.
+zstyle ':fzf-tab:*' continuous-trigger '/'
 
 # ── Shell integrations (must come after compinit) ──────────────
-# carapace: completion engine covering ~1000 CLIs (terraform, ansible, gh, docker,
-# kubectl). Overlaps zsh-completions but is far broader and stays current.
+# carapace: completion engine covering ~1000 CLIs (gh, docker, kubectl).
+# Overlaps zsh-completions but is far broader and stays current.
 if command -v carapace >/dev/null 2>&1; then
   export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
-  # carapace needs a `format` style for fzf-tab to render group headers.
-  zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
   source <(carapace _carapace)
 fi
 
@@ -177,7 +188,8 @@ if command -v atuin >/dev/null 2>&1; then
 fi
 
 # ── fzf ────────────────────────────────────────────────────────
-export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+# .git/ exclusion comes from dot_config/fd/ignore now, not a per-command flag.
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border --inline-info'
 FZF_DEFAULT_OPTS+=' --color=bg+:#363a4f,bg:#24273a,spinner:#f4dbd6,hl:#ed8796'
 FZF_DEFAULT_OPTS+=' --color=fg:#cad3f5,header:#ed8796,info:#c6a0f6,pointer:#f4dbd6'
@@ -185,7 +197,7 @@ FZF_DEFAULT_OPTS+=' --color=marker:#b7bdf8,fg+:#cad3f5,prompt:#c6a0f6,hl+:#ed879
 FZF_DEFAULT_OPTS+=' --color=selected-bg:#494d64'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_CTRL_T_OPTS="--preview 'bat --color=always {} 2>/dev/null | head -50'"
-export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+export FZF_ALT_C_COMMAND='fd --type d --hidden --follow'
 export FZF_ALT_C_OPTS="--preview 'eza --tree --icons --color=always {} 2>/dev/null | head -50'"
 
 # ── Aliases — navigation ───────────────────────────────────────
@@ -206,16 +218,7 @@ alias vi='nvim'
 alias lg='lazygit'
 alias c='clear'
 alias python='python3'
-
-# ── Aliases — terraform ────────────────────────────────────────
-alias tf='terraform'
-alias tfi='terraform init'
-alias tfp='terraform plan'
-alias tfa='terraform apply'
-
-# ── Aliases — ansible ──────────────────────────────────────────
-alias ap='ansible-playbook'
-alias apv='ansible-playbook --ask-vault-pass'
+alias code='codium'
 
 # ── Functions ──────────────────────────────────────────────────
 # Refresh font cache (fonts live under ~/.local/share/fonts — no sudo needed)
@@ -225,7 +228,7 @@ update_fonts() {
 
 # ── Greeting ───────────────────────────────────────────────────
 # Skipped inside tmux so every new pane doesn't redraw the whole fetch.
-if [[ -z "$TMUX" ]]; then
+if [[ -z "$TMUX" ]] && command -v fastfetch >/dev/null 2>&1; then
   fastfetch
 fi
 

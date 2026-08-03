@@ -12,6 +12,7 @@
 # ── Editor ─────────────────────────────────────────────────────
 # Configured in dot_config/VSCodium. The -bin package skips a long build.
 vscodium-bin
+vscodium-bin-marketplace
 
 # ── Browsers ───────────────────────────────────────────────────
 # Both are native packages — nothing here uses flatpak.

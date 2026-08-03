@@ -1,12 +1,10 @@
-# nvim plugin lockfile — each machine manages its own
-.config/nvim/lazy-lock.json
-
 # GUI-only configs — desktop machines only.
 # VSCodium is here because remote-ssh and Codespaces don't read
 # ~/.config/VSCodium on the remote end; they use ~/.vscode-server/ instead.
 {{ if not .isDesktop }}
 .config/alacritty
 .config/ghostty
+.config/kitty
 .config/VSCodium
 .local/share/applications
 
@@ -18,4 +16,8 @@
 # with the `run_once_` prefix stripped — NOT `run_once_install_fonts.sh`.
 # Verify any change with `chezmoi managed | grep install_`.
 install_fonts.sh
+
+# VSCodium itself is ignored above on headless, so its extensions have
+# nothing to install into either.
+install_vscodium_extensions.sh
 {{ end }}
