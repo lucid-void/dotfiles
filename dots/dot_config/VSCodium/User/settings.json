@@ -1,0 +1,17 @@
+{
+    "editor.suggestSelection": "first",
+    // font ligatures
+    "editor.fontFamily": "'FiraCode Nerd Font', 'monospace'",
+    "editor.fontLigatures": true,
+    "editor.fontSize": 17,
+    "terminal.integrated.fontFamily": "monospace",
+    "terminal.integrated.fontLigatures.enabled": true,
+    "security.workspace.trust.untrustedFiles": "open",
+    "explorer.confirmDragAndDrop": false,
+    "editor.guides.bracketPairs": true,
+    "diffEditor.ignoreTrimWhitespace": true,
+    "editor.minimap.enabled": false,
+    "diffEditor.renderSideBySide": false,
+    "workbench.iconTheme": "catppuccin-macchiato",
+    "workbench.colorTheme": "Catppuccin Macchiato",
+}

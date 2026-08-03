@@ -1,0 +1,52 @@
+# Alacritty — desktop only.
+#
+# TERM is deliberately NOT overridden here (this file used to force
+# `[env] TERM = "xterm-256color"`). The `alacritty` terminfo entry ships with the
+# package and is what gives nvim colored/undercurl underlines; forcing a generic
+# xterm entry throws that away on every local session to fix a problem that only
+# occurs on remote ones.
+#
+# The remote case is handled where it belongs: ~/.ssh/config sends
+# `SetEnv TERM=xterm-256color`, so SSH sessions land on a portable TERM without
+# degrading the local terminal. TERM is explicitly exempt from the server's
+# AcceptEnv allowlist, so that works against any host.
+
+[general]
+import = [
+  "~/.config/alacritty/catppuccin-macchiato.toml"
+]
+
+[font]
+size = 14.0
+
+[font.normal]
+family = "MesloLGS NF"
+style = "Regular"
+
+[font.bold]
+family = "MesloLGS NF"
+style = "Bold"
+
+[font.italic]
+family = "MesloLGS NF"
+style = "Italic"
+
+[font.bold_italic]
+family = "MesloLGS NF"
+style = "Bold Italic"
+
+[window]
+decorations = "full"
+dynamic_padding = true
+
+[window.padding]
+x = 2
+y = 2
+
+# Matches `set -g history-limit 50000` in .tmux.conf, so scrollback depth is the
+# same whether or not you are inside tmux.
+[scrolling]
+history = 50000
+
+[mouse]
+hide_when_typing = true

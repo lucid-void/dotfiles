@@ -4,24 +4,32 @@ export XDG_DATA_HOME="$HOME/.local/share"
 export XDG_CACHE_HOME="$HOME/.cache"
 export XDG_STATE_HOME="$HOME/.local/state"
 
-export PATH="$HOME/.local/bin:$PATH"
 export EDITOR="nvim"
-export TERM="xterm-256color"
+export VISUAL="$EDITOR"
 
 export BAT_THEME="Catppuccin Macchiato"
-export RIPGREP_CONFIG_PATH="$HOME/.config/ripgrep/config"
 
-# ── mise ───────────────────────────────────────────────────────
-if [[ ! -x "$HOME/.local/bin/mise" ]]; then
-  curl https://mise.run | sh
-  "$HOME/.local/bin/mise" install
-  # Bat catppuccin theme
-  mkdir -p "$HOME/.config/bat/themes"
-  curl -sL "https://github.com/catppuccin/bat/raw/main/themes/Catppuccin%20Macchiato.tmTheme" \
-    -o "$HOME/.config/bat/themes/Catppuccin Macchiato.tmTheme"
-  "$HOME/.local/bin/mise" exec -- bat cache --build 2>/dev/null || true
-fi
-eval "$($HOME/.local/bin/mise activate zsh)"
+# Only export if the config actually exists — ripgrep ignores a missing file
+# silently, which makes a dangling path easy to not notice.
+[[ -f "$XDG_CONFIG_HOME/ripgrep/config" ]] \
+  && export RIPGREP_CONFIG_PATH="$XDG_CONFIG_HOME/ripgrep/config"
+
+# NOTE: TERM is deliberately *not* set here. The terminal emulator sets it
+# correctly on its own (ghostty → xterm-ghostty, alacritty → alacritty,
+# tmux → tmux-256color); overriding it costs truecolor and undercurl support.
+
+# ── PATH ───────────────────────────────────────────────────────
+# typeset -U keeps $path deduplicated when this file is re-sourced.
+typeset -U path PATH
+
+[[ -d "$HOME/.local/bin" ]] && path=("$HOME/.local/bin" $path)
+[[ -d "${KREW_ROOT:-$HOME/.krew}/bin" ]] && path=("${KREW_ROOT:-$HOME/.krew}/bin" $path)
+
+export PATH
+
+# Tools come from the packages/ lists (pacman/paru), so they are already on
+# PATH — there is no version manager to activate here. The bat Catppuccin theme
+# is fetched by run_once_install_bat_theme.sh rather than from this file.
 
 # ── zinit ──────────────────────────────────────────────────────
 ZINIT_HOME="${XDG_DATA_HOME}/zinit/zinit.git"
@@ -33,16 +41,58 @@ source "${ZINIT_HOME}/zinit.zsh"
 
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#8087a2"  # overlay1
 
-zinit wait lucid light-mode for \
-  zsh-users/zsh-autosuggestions \
-  zdharma-continuum/fast-syntax-highlighting \
-  zsh-users/zsh-completions \
-  Aloxaf/fzf-tab
+# Turbo-loaded (`wait`), so order and ices matter:
+#   - atload'!_zsh_autosuggest_start' — without it autosuggestions registers its
+#     precmd hook too late and silently misses the first prompt.
+#   - blockf stops zsh-completions writing to fpath itself; atpull re-registers
+#     its completions on every update.
+#   - fast-syntax-highlighting must be LAST: it wraps ZLE widgets, so anything
+#     loaded after it goes unhighlighted.
+#   - zicdreplay replays the compdefs queued during turbo load. This is the only
+#     replay — there is deliberately no bare `zinit cdreplay` in the completion
+#     section below, since running both would replay every compdef twice.
+zinit wait lucid for \
+  atload'!_zsh_autosuggest_start' zsh-users/zsh-autosuggestions \
+  blockf atpull'zinit creinstall -q .'  zsh-users/zsh-completions \
+                                        Aloxaf/fzf-tab \
+                                        hlissner/zsh-autopair \
+  atinit'zicdreplay'                    zdharma-continuum/fast-syntax-highlighting
+
+# OMZ sudo plugin: prefix the current line with sudo. Its default Esc-Esc binding
+# collides with vi mode (Esc already leaves insert mode), so rebind to Alt-s and
+# free Esc-Esc again.
+_sudo_rebind() {
+  bindkey -M viins '^[s' sudo-command-line
+  bindkey -M vicmd '^[s' sudo-command-line
+  bindkey -r -M vicmd '^[^['
+}
+zinit wait lucid atload'_sudo_rebind' for OMZP::sudo
+
+# fzf-git: Ctrl-G Ctrl-{B,T,H,R,S} for branches, tags, hashes, remotes, stashes.
+# Complements lazygit rather than overlapping it.
+zinit wait lucid for junegunn/fzf-git.sh
 
 # ── Prompt & tools ─────────────────────────────────────────────
 eval "$(starship init zsh)"
 eval "$(zoxide init zsh --cmd cd)"
 eval "$(fzf --zsh)"
+
+# thefuck spawns a Python interpreter at startup (~300ms), so it is loaded only
+# when actually installed. It is unmaintained upstream — pay-respects is the
+# maintained drop-in if this ever stops working.
+if command -v thefuck >/dev/null 2>&1; then
+  eval "$(thefuck --alias)"
+fi
+
+# kubectl's completion script is slow to generate, so cache it rather than
+# regenerating on every shell. Delete the cache file after a kubectl upgrade.
+if command -v kubectl >/dev/null 2>&1; then
+  _kubectl_comp="${XDG_CACHE_HOME}/zsh/kubectl-completion.zsh"
+  [[ -d "${_kubectl_comp:h}" ]] || mkdir -p "${_kubectl_comp:h}"
+  [[ -s "$_kubectl_comp" ]] || kubectl completion zsh > "$_kubectl_comp"
+  source "$_kubectl_comp"
+  unset _kubectl_comp
+fi
 
 # ── Vi mode ────────────────────────────────────────────────────
 bindkey -v
@@ -63,8 +113,9 @@ bindkey '^[[1;5D' backward-word  # Ctrl+Left
 # ── History ────────────────────────────────────────────────────
 HISTFILE="${XDG_STATE_HOME}/zsh/history"
 HISTSIZE=1000000
-SAVEHIST=1000000
+SAVEHIST=$HISTSIZE
 [[ ! -d "$(dirname "$HISTFILE")" ]] && mkdir -p "$(dirname "$HISTFILE")"
+setopt APPEND_HISTORY
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_SAVE_NO_DUPS
@@ -78,6 +129,7 @@ setopt HIST_VERIFY
 setopt AUTO_CD
 setopt COMPLETE_IN_WORD
 setopt NO_BEEP
+setopt NO_BG_NICE   # don't deprioritise background jobs
 
 # ── Completion ─────────────────────────────────────────────────
 autoload -Uz compinit _zinit
@@ -89,10 +141,13 @@ else
   compinit -C -d "$_zcompdump"
 fi
 unset _zcompdump
-zinit cdreplay -q
+# NOTE: no `zinit cdreplay -q` here — the replay is done once via
+# atinit'zicdreplay' on fast-syntax-highlighting in the zinit block above.
 (( ${+_comps} )) && _comps[zinit]=_zinit
 
-zstyle ':completion:*' menu select
+# `menu no` is required by fzf-tab — with `menu select` zsh draws its own
+# selection menu and fzf-tab never takes over.
+zstyle ':completion:*' menu no
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*:descriptions' format '[%d]'
@@ -102,6 +157,24 @@ zstyle ':fzf-tab:complete:cd:*'          fzf-preview 'eza --tree --icons --color
 zstyle ':fzf-tab:complete:__zoxide_z:*'  fzf-preview 'eza --tree --icons --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:complete:*'             fzf-preview 'bat --color=always $realpath 2>/dev/null | head -50'
 zstyle ':fzf-tab:*'              switch-group ',' '.'
+
+# ── Shell integrations (must come after compinit) ──────────────
+# carapace: completion engine covering ~1000 CLIs (terraform, ansible, gh, docker,
+# kubectl). Overlaps zsh-completions but is far broader and stays current.
+if command -v carapace >/dev/null 2>&1; then
+  export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
+  # carapace needs a `format` style for fzf-tab to render group headers.
+  zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
+  source <(carapace _carapace)
+fi
+
+# atuin: SQLite-backed shell history — fuzzy search, per-directory filtering, exit
+# codes and durations, optional end-to-end encrypted sync.
+# --disable-up-arrow keeps the arrow-key history-search bindings set above; atuin
+# takes over Ctrl-R only. Drop the flag to let atuin own the up arrow too.
+if command -v atuin >/dev/null 2>&1; then
+  eval "$(atuin init zsh --disable-up-arrow)"
+fi
 
 # ── fzf ────────────────────────────────────────────────────────
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
@@ -120,11 +193,13 @@ alias ..='cd ..'
 alias ...='cd ../..'
 
 # ── Aliases — tools ────────────────────────────────────────────
-alias ls='eza --icons'
-alias ll='eza -lah --icons --git'
-alias lt='eza --tree --icons'
+# --icons=auto so icons are dropped when piped or on a font-less console.
+alias ls='eza --icons=auto'
+alias lss='eza'
+alias ll='eza -lah --icons=auto --git'
+alias lt='eza --tree --icons=auto'
 alias cat='bat --paging=never'
-alias grep='rg'
+alias grep='rg --color=auto'
 alias find='fd'
 alias vim='nvim'
 alias vi='nvim'
@@ -143,24 +218,14 @@ alias ap='ansible-playbook'
 alias apv='ansible-playbook --ask-vault-pass'
 
 # ── Functions ──────────────────────────────────────────────────
-# Pin all active mise tools to their current versions globally
-mise_pin() {
-  mise ls --current | awk '{print $1"@"$2}' | xargs mise use --global
-}
-
-# Update mise binary and all managed tools
-mise_update() {
-  mise self-update
-  mise upgrade
-}
-
-# Refresh font cache
+# Refresh font cache (fonts live under ~/.local/share/fonts — no sudo needed)
 update_fonts() {
   fc-cache -fv
 }
 
-# ── Greeting (interactive shells only) ─────────────────────────
-if [[ $- == *i* ]]; then
+# ── Greeting ───────────────────────────────────────────────────
+# Skipped inside tmux so every new pane doesn't redraw the whole fetch.
+if [[ -z "$TMUX" ]]; then
   fastfetch
 fi
 

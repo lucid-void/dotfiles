@@ -1,0 +1,58 @@
+# Browser extension list — desktop only.
+#
+# Format: <extension-id>  # <name>
+# One per line; `#` starts a comment. IDs are Chrome Web Store extension IDs and
+# are what actually matter — the names are here for human readability only.
+#
+# Scraped from the Brave profile at
+#   ~/.config/BraveSoftware/Brave-Origin/Default/Extensions
+# ungoogled-chromium had no extensions of its own (it ships without web store
+# access), which is the point of this list: one inventory, both browsers.
+#
+# ── How these get installed ────────────────────────────────────
+# Chromium has no `--install-extension` CLI, so install.sh turns this list into
+# an ExtensionInstallForcelist enterprise policy and writes it to both:
+#
+#   /etc/chromium/policies/managed/extensions.json   (ungoogled-chromium)
+#   /etc/brave/policies/managed/extensions.json      (brave-origin)
+#
+# Both paths are compiled into the shipped binaries — verified by grepping them.
+# Each browser installs the listed extensions from the Chrome Web Store on next
+# launch. Edit this file and re-run install.sh to change the set.
+#
+# ⚠️ Force-installed extensions CANNOT be disabled or removed from the browser
+#    UI. Removing one means deleting it here and re-running install.sh.
+#
+# ⚠️ ungoogled-chromium ships with web store integration stripped out. The policy
+#    is written for it regardless, but whether it actually fetches the CRXs
+#    depends on the build — verify rather than assume. Brave is unaffected.
+#
+# The step is desktop-only and needs root (or passwordless sudo); without
+# privileges install.sh warns and skips rather than failing.
+
+#hmbnhhcgiecenbbkgdoaoafjpeaboine  # Ad & Intro Skip for YT, Netflix
+cmedhionkhpnakcndndgjdbohmhepckk  # Adblock for Youtube™
+nngceckbapebfimnlniiiahkandclblb  # Bitwarden Password Manager
+#kclpjmhngbacampgcdojmiedamjbgjjm  # Connective signing extension
+ponfpcnoihfmfllpaingbgckeeldkhle  # Enhancer for YouTube™
+fhkphphbadjkepgfljndicmgdlndmoke  # Font Fingerprint Defender
+#aapbdbdomjkkjkaonfhkkikfgjllcleb  # Google Translate
+#pamimfbchojeflegdjgijcgnoghgfemn  # Kasm - Open In Isolation
+#ppnbnpeolgkicgegkbkbjmhlideopiji  # Microsoft Single Sign On
+cimiefiiaegbelhefglklhhakcgmhkai  # Plasma Integration
+gebbhagfogifgggkldgodflihgfeippi  # Return YouTube Dislike
+#okfkdaglfjjjfefdcppliegebpoegaii  # Scribe: AI Documentation, SOPs & Process Intelligence
+mnjggcdmjocbbbhaepdhchncahnbgone  # SponsorBlock for YouTube - Skip Sponsorships
+#gibkoahgjfhphbmeiphbcnhehbfdlcgo  # Tab for a Cause
+dhdgffkkebhmkfjojejmpbldmpobfkfo  # Tampermonkey
+fmkancpjcacjodknfjcpmgkccbhedkhc  # Tweeks - Customize Any Website
+
+# AdNauseam is deliberately NOT in this list. It is installed unpacked by
+# dots/run_once_install_adnauseam.sh.tmpl and loaded via --load-extension, so it
+# never appears in the profile's Extensions directory.
+#
+# ⚠️ AdNauseam is a fork of uBlock Origin and reuses its filtering engine.
+# Upstream advises against running both — they compete over the same blocking
+# rules. uBlock Origin is listed above because it is genuinely installed in the
+# profile, not because the pairing is endorsed. Pick one before wiring up any
+# auto-install.

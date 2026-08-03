@@ -1,0 +1,11 @@
+# Target paths chezmoi should delete from $HOME on every apply.
+#
+# chezmoi does NOT remove a file from the target just because it disappeared from
+# the source, so retired entries have to be listed here explicitly.
+
+# Retired: the Brave desktop entry used to launch the flatpak (com.brave.Browser).
+# Both browsers are now native AUR packages, and the entries that replace this one
+# are brave-origin.desktop and chromium.desktop, which override the system files of
+# the same name. Without this line, a machine provisioned before the switch keeps a
+# stale launcher pointing at a flatpak that is no longer installed.
+.local/share/applications/com.brave.Browser.desktop

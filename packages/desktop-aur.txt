@@ -1,0 +1,41 @@
+# AUR package list — desktop mode only, installed via paru after the two
+# pacman lists. install.sh bootstraps paru-bin from the AUR if it is missing.
+#
+# One package per line; `#` starts a comment.
+#
+# paru resolves official-repo packages too, so an entry that graduates from the
+# AUR into extra keeps working without an edit.
+#
+# Skipped entirely when the installer runs as root: makepkg refuses to build as
+# root, so this needs a normal user with passwordless sudo.
+
+# ── Editor ─────────────────────────────────────────────────────
+# Configured in dot_config/VSCodium. The -bin package skips a long build.
+vscodium-bin
+
+# ── Browsers ───────────────────────────────────────────────────
+# Both are native packages — nothing here uses flatpak.
+#
+# Each has a desktop entry in dot_local/share/applications that overrides the
+# system one (same filename) to add the shared AdNauseam flags. The flags live in
+# dots/.chezmoitemplates/browser-extension-flags so the two can't drift apart.
+#
+# brave-origin-bin is the de-branded Brave build. On this host it resolves from
+# the cachyos / chaotic-aur binary repos; on vanilla Arch paru builds it from AUR.
+brave-origin-bin
+ungoogled-chromium-bin
+
+# ── Chat ───────────────────────────────────────────────────────
+# Vesktop: Discord with Vencord baked in.
+vesktop
+
+# ── Media ──────────────────────────────────────────────────────
+spotify
+plex-desktop
+
+# ── Notes and sync ─────────────────────────────────────────────
+joplin-desktop
+filen-desktop-bin
+
+# ── 3D printing ────────────────────────────────────────────────
+orca-slicer-bin

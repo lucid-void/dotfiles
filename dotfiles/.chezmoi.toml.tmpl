@@ -1,9 +1,0 @@
-{{- $isDesktop := false -}}
-{{- if not (env "CODESPACES") -}}
-{{-   $isDesktop = promptBoolOnce . "isDesktop" "Desktop machine?" -}}
-{{- end -}}
-
-sourceDir = "{{ .chezmoi.homeDir }}/.dotfiles"
-
-[data]
-  isDesktop = {{ $isDesktop }}

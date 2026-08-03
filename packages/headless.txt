@@ -1,0 +1,107 @@
+# Headless package list — installed on every machine, desktop included.
+#
+# Official Arch repos only. One package per line; `#` starts a comment.
+# Installed by install.sh with `pacman -S --needed`, so re-runs are no-ops.
+#
+# This list replaced mise: every CLI tool that used to be pinned in
+# dot_config/mise/config.toml is now a system package on its repo version.
+# That means no per-tool pinning — `pacman -Syu` moves everything at once.
+# CLI tools with no official package go in headless-aur.txt.
+
+# ── Toolchain ──────────────────────────────────────────────────
+# base-devel is required by makepkg, so paru and the AUR lists depend on it.
+base-devel
+git
+
+# ── Fetching and archives ──────────────────────────────────────
+curl
+wget
+tar
+unzip
+zip
+rsync
+
+# ── Shell and terminal ─────────────────────────────────────────
+zsh
+tmux
+less
+
+# ── Prompt ─────────────────────────────────────────────────────
+starship
+
+# ── Shell history ──────────────────────────────────────────────
+# .zshrc initialises this with --disable-up-arrow; it takes Ctrl-R only.
+atuin
+
+# ── Remote access ──────────────────────────────────────────────
+openssh
+
+# ── Docs ───────────────────────────────────────────────────────
+man-db
+man-pages
+
+# ── Editor ─────────────────────────────────────────────────────
+neovim
+
+# ── Git ────────────────────────────────────────────────────────
+# git-delta is .gitconfig's `core.pager`. Without it git cannot page at all,
+# so this is a hard dependency of dot_gitconfig, not an optional nicety.
+git-delta
+github-cli
+lazygit
+
+# ── Dotfiles ───────────────────────────────────────────────────
+# install.sh also bootstraps chezmoi from get.chezmoi.io, but that block is
+# guarded on `command -v`, so on Arch this package wins and the curl fallback
+# only fires on other distros.
+chezmoi
+
+# ── Modern CLI replacements ────────────────────────────────────
+# All aliased or initialised in .zshrc: ls/ll/lt, cat, grep, find, cd, Ctrl-T.
+eza
+bat
+fd
+ripgrep
+fzf
+zoxide
+
+# ── CLI utilities ──────────────────────────────────────────────
+jq
+yq
+
+# ── System monitors ────────────────────────────────────────────
+# btop and bottom overlap; bottom is what .zshrc's toolset carried, btop was
+# added later. Keeping both is harmless — drop one if the duplication annoys.
+btop
+bottom
+gdu
+
+# ── System info ────────────────────────────────────────────────
+# The greeting also wants pokeget, which is AUR-only — see headless-aur.txt.
+fastfetch
+
+# ── Infrastructure ─────────────────────────────────────────────
+# Aliased in .zshrc as tf/tfi/tfp/tfa and ap/apv.
+terraform
+packer
+ansible
+
+# ── Languages ──────────────────────────────────────────────────
+# rustup rather than the `rust` package: it manages toolchains, which is the
+# part of mise worth keeping here. Run `rustup default stable` once.
+# These are single system-wide versions now — there is no per-project runtime
+# switching any more.
+python
+python-pipx
+nodejs
+npm
+rustup
+
+# ── Arch housekeeping ──────────────────────────────────────────
+# paccache (cache pruning) and checkupdates (safe update check).
+pacman-contrib
+
+# ── Optional ───────────────────────────────────────────────────
+# .zshrc guards `thefuck` on `command -v`, so leaving it out is harmless.
+# It is no longer packaged in the AUR either (the RPC returns no result), so
+# there is nothing to uncomment — install it with pipx if you want it back.

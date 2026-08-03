@@ -1,0 +1,36 @@
+{{- $flags := includeTemplate "browser-extension-flags" . | trim -}}
+{{/*
+  Overrides /usr/share/applications/brave-origin.desktop (brave-origin-bin, AUR).
+  The filename must match the system entry exactly — that is what makes
+  ~/.local/share/applications take precedence over /usr/share/applications.
+
+  This replaces the system entry wholesale rather than merging, so the upstream
+  GenericName[xx]/Comment[xx] translations are intentionally dropped for
+  readability. Re-check this file if the package ever renames its binary or icon.
+*/ -}}
+[Desktop Entry]
+Version=1.0
+Name=Brave
+GenericName=Web Browser
+Comment=Access the Internet
+StartupNotify=true
+StartupWMClass=brave-origin
+Exec=/usr/bin/brave-origin {{ $flags }} %U
+Terminal=false
+Icon=brave-origin
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=application/pdf;application/rdf+xml;application/rss+xml;application/xhtml+xml;application/xhtml_xml;application/xml;image/gif;image/jpeg;image/png;image/webp;text/html;text/xml;x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/chromium;
+Actions=new-window;new-private-window;new-tor-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=/usr/bin/brave-origin {{ $flags }}
+
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=/usr/bin/brave-origin {{ $flags }} --incognito
+
+[Desktop Action new-tor-window]
+Name=New Private Window with Tor
+Exec=/usr/bin/brave-origin {{ $flags }} --tor

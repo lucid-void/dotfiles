@@ -1,0 +1,17 @@
+{{- /*
+  Desktop is the default. For a headless machine (VM, container, Codespace):
+
+    chezmoi init --apply --promptBool isDesktop=false --source "$PWD"
+
+  The --promptBool flag matches on the *prompt string*, which is why the prompt
+  below is literally "isDesktop" rather than a friendlier sentence.
+
+  promptBoolOnce persists the answer into this config, so subsequent
+  `chezmoi apply` / `chezmoi update` runs never prompt again.
+*/ -}}
+{{- $isDesktop := promptBoolOnce . "isDesktop" "isDesktop" true -}}
+
+sourceDir = "{{ .chezmoi.sourceDir }}"
+
+[data]
+  isDesktop = {{ $isDesktop }}

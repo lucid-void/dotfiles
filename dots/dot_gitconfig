@@ -1,0 +1,64 @@
+[user]
+  name  = lucid-void
+  email = 74971817+lucid-void@users.noreply.github.com
+
+[core]
+  editor   = nvim
+  autocrlf = input
+
+  # Was `cat`, which disabled paging outright — `git log` in a big repo dumped
+  # the entire history into the scrollback. delta pages *and* syntax-highlights;
+  # it comes from packages/headless.txt (`git-delta`, official extra repo).
+  pager    = delta
+
+# delta reuses bat's theme cache, so the Catppuccin Macchiato theme fetched by
+# run_once_install_bat_theme.sh is what it renders with — one theme, both tools.
+[delta]
+  navigate     = true
+  line-numbers = true
+  syntax-theme = Catppuccin Macchiato
+
+# Routes `git add -p` and friends through delta too, not just plain diffs.
+[interactive]
+  diffFilter = delta --color-only
+
+[init]
+  defaultBranch = main
+
+[push]
+  autoSetupRemote = true
+
+[pull]
+  rebase = true
+
+[rebase]
+  autoStash = true
+
+[diff]
+  # `nvim` is not a valid difftool name — git expects the *tool* (nvimdiff),
+  # which knows how to open the four-way layout. Plain `nvim` made
+  # `git difftool` fall back to prompting for a command every time.
+  tool = nvimdiff
+
+  # Detects moved blocks and colours them apart from real additions/deletions.
+  # delta's docs recommend this; it is a no-op without a colouring pager.
+  colorMoved = default
+
+[merge]
+  tool = nvimdiff
+
+  # zdiff3 keeps the common ancestor in conflict markers *and* hoists the
+  # shared lines out of both sides, so conflicts show what actually diverged.
+  conflictStyle = zdiff3
+
+[alias]
+  st  = status -sb
+  lg  = log --oneline --graph --decorate --all
+  lga = log --oneline --graph --decorate --all --author-date-order
+  co  = checkout
+  br  = branch
+  cp  = cherry-pick
+  undo = reset --soft HEAD~1
+
+[color]
+  ui = auto

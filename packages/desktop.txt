@@ -1,0 +1,44 @@
+# Desktop package list — installed only when install.sh runs in desktop mode,
+# on top of headless.txt.
+#
+# Official Arch repos only. One package per line; `#` starts a comment.
+# AUR desktop apps live in desktop-aur.txt.
+
+# ── Fonts ──────────────────────────────────────────────────────
+# fontconfig provides fc-cache, which run_once_install_fonts.sh calls after
+# dropping FiraCode Nerd Font and MesloLGS NF into ~/.local/share/fonts.
+# Those two are fetched by that script, so they are deliberately not here.
+# Noto covers everything the Nerd Font doesn't: CJK glyphs and colour emoji.
+fontconfig
+noto-fonts
+noto-fonts-emoji
+
+# ── Terminals ──────────────────────────────────────────────────
+# Both are configured under dot_config. Ghostty left the AUR and lives in
+# extra as of 1.3.x, so it belongs here rather than in desktop-aur.txt.
+alacritty
+ghostty
+
+# ── Desktop integration ────────────────────────────────────────
+# xdg-open, plus update-desktop-database for the browser entries installed by
+# dot_local/share/applications/{brave-origin,chromium}.desktop.tmpl.
+# desktop-file-utils also provides desktop-file-validate for checking them.
+xdg-utils
+desktop-file-utils
+
+# ── Clipboard ──────────────────────────────────────────────────
+# Wayland clipboard bridge for nvim and tmux. Swap for xclip on X11.
+wl-clipboard
+
+# ── Chat ───────────────────────────────────────────────────────
+signal-desktop
+telegram-desktop
+
+# ── Hardware and CAD ───────────────────────────────────────────
+# solaar manages Logitech Unifying receivers; it installs udev rules, so a
+# reboot or `udevadm control --reload` is needed before it sees a device.
+kicad
+solaar
+
+# ── Games ──────────────────────────────────────────────────────
+prismlauncher

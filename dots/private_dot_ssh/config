@@ -1,0 +1,17 @@
+# Machine-specific hosts, keys, and overrides — not tracked in dotfiles
+Include ~/.ssh/config.private
+
+Host *
+  ServerAliveInterval  60
+  ServerAliveCountMax  3
+  AddKeysToAgent       yes
+  IdentityFile         ~/.ssh/id_ed25519
+
+  # Send a portable TERM instead of the local terminal's own entry.
+  # alacritty sets TERM=alacritty and ghostty sets TERM=xterm-ghostty; remote
+  # hosts rarely have either terminfo, which breaks clear/less/nvim rendering.
+  # Overriding it here rather than in the terminal configs keeps full terminal
+  # capabilities locally (colored undercurl in nvim) and only degrades over SSH.
+  # TERM is exempt from the server's AcceptEnv allowlist, so this needs no
+  # cooperation from the remote side.
+  SetEnv               TERM=xterm-256color

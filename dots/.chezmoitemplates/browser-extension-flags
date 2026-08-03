@@ -1,0 +1,15 @@
+{{/*
+  Chromium-family flags shared by every browser desktop entry in this repo, so
+  Brave and ungoogled-chromium can never drift apart on which extensions they load.
+
+  Consumed as:  {{ includeTemplate "browser-extension-flags" . | trim }}
+  The `trim` is required — without it the trailing newline breaks the Exec= line.
+
+  To add another unpacked extension, append to --load-extension as a
+  comma-separated list of directories:
+      --load-extension=/path/one,/path/two
+
+  --disable-features=ExtensionManifestV2Unsupported keeps MV2 extensions
+  (AdNauseam is MV2) loadable on Chromium builds that have started phasing MV2 out.
+*/ -}}
+--load-extension={{ .chezmoi.homeDir }}/.local/share/adnauseam --disable-features=ExtensionManifestV2Unsupported

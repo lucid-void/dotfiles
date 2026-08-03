@@ -1,0 +1,24 @@
+# Ghostty — desktop only.
+#
+# Deliberately kept in step with alacritty.toml: same font, same size, same
+# padding, same theme. Whichever terminal you open should look identical.
+#
+# ⚠️ NOT VALIDATED. Ghostty was not installed on the machine this was written on,
+# so these keys were not checked against a real binary. Verify once with:
+#     ghostty +show-config
+# which prints the effective config and complains about unrecognised keys.
+#
+# TERM is left alone here too. Ghostty sets TERM=xterm-ghostty and ships its own
+# terminfo; remote hosts almost never have that entry, which is handled by
+# `SetEnv TERM=xterm-256color` in ~/.ssh/config rather than by crippling the
+# local terminal. See the same note in alacritty.toml.
+
+theme = Catppuccin Macchiato
+
+font-family = MesloLGS NF
+font-size = 14
+
+window-padding-x = 2
+window-padding-y = 2
+
+mouse-hide-while-typing = true

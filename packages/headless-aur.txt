@@ -1,0 +1,25 @@
+# Headless AUR list — installed on every machine, desktop included, via paru.
+#
+# For CLI tools with no official-repo source. Desktop AUR apps go in
+# desktop-aur.txt.
+#
+# One package per line; `#` starts a comment.
+#
+# paru resolves official-repo packages too, so an entry that graduates out of
+# the AUR keeps working without an edit. On this host several of these come
+# from the cachyos / chaotic-aur binary repos rather than being built locally.
+#
+# Skipped entirely when the installer runs as root: makepkg refuses to build as
+# root, so this needs a normal user with passwordless sudo.
+
+# ── Agents ─────────────────────────────────────────────────────
+claude-code
+
+# ── Completion ─────────────────────────────────────────────────
+# Completion engine covering ~1000 CLIs, initialised in .zshrc behind a
+# `command -v` guard. The -bin package skips a Go build.
+carapace-bin
+
+# ── Fun ────────────────────────────────────────────────────────
+# Used by the fastfetch greeting in .zshrc. Was `cargo:pokeget` under mise.
+pokeget

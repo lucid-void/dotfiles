@@ -1,0 +1,36 @@
+# ripgrep — read via $RIPGREP_CONFIG_PATH, which .zshrc exports only if this
+# file exists.
+#
+# Format is one argument per line. There is NO shell parsing: quotes, globs and
+# spaces are taken literally, so `--glob=!.git/` needs no escaping and
+# `--glob "!.git/"` would not work. Lines starting with `#` are ignored.
+#
+# These apply to every rg invocation, including the `grep` alias in .zshrc and
+# anything shelling out to rg (fzf, nvim pickers). Override per-call with the
+# opposite flag — e.g. `rg --case-sensitive`, `rg --no-hidden`.
+
+# ── Matching ───────────────────────────────────────────────────
+# Lowercase patterns match case-insensitively; add a capital to go exact.
+--smart-case
+
+# ── What gets searched ─────────────────────────────────────────
+# Search dotfiles and dot-directories — in a dotfiles repo the interesting
+# content is mostly hidden by definition. .gitignore is still respected.
+--hidden
+
+# ...but never walk the object database. Without this, --hidden turns every
+# search in a git repo into a scan of thousands of loose objects and packfiles.
+--glob=!.git/
+
+# Other high-volume directories that are rarely what you meant. These are
+# usually covered by .gitignore, but not when searching outside a repo.
+--glob=!node_modules/
+--glob=!.venv/
+--glob=!target/
+
+# ── Output ─────────────────────────────────────────────────────
+# Minified files and lockfiles produce single lines thousands of columns wide,
+# which shreds the terminal. Truncate, but print a marker so a hit is never
+# silently invisible.
+--max-columns=200
+--max-columns-preview
