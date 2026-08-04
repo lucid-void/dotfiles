@@ -24,6 +24,10 @@ typeset -U path PATH
 
 [[ -d "$HOME/.local/bin" ]] && path=("$HOME/.local/bin" $path)
 [[ -d "${KREW_ROOT:-$HOME/.krew}/bin" ]] && path=("${KREW_ROOT:-$HOME/.krew}/bin" $path)
+# rustup's own installer (the non-Arch path) puts cargo/rustc here rather than
+# in ~/.local/bin, and `cargo install` drops binaries here on every host. Arch's
+# rustup package shims /usr/bin too, so this is additive, not a duplicate.
+[[ -d "$HOME/.cargo/bin" ]] && path=("$HOME/.cargo/bin" $path)
 
 export PATH
 
@@ -44,19 +48,18 @@ ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#8087a2"  # overlay1
 # Turbo-loaded (`wait`), so order and ices matter:
 #   - atload'!_zsh_autosuggest_start' — without it autosuggestions registers its
 #     precmd hook too late and silently misses the first prompt.
-#   - blockf stops zsh-completions writing to fpath itself; atpull re-registers
-#     its completions on every update.
 #   - fast-syntax-highlighting must be LAST: it wraps ZLE widgets, so anything
 #     loaded after it goes unhighlighted.
 #   - zicdreplay replays the compdefs queued during turbo load. This is the only
 #     replay — there is deliberately no bare `zinit cdreplay` in the completion
 #     section below, since running both would replay every compdef twice.
+# zsh-users/zsh-completions is deliberately absent: carapace (below) covers the
+# same ground and far more, so carrying both was duplicated startup work.
 zinit wait lucid for \
   atload'!_zsh_autosuggest_start' zsh-users/zsh-autosuggestions \
-  blockf atpull'zinit creinstall -q .'  zsh-users/zsh-completions \
-                                        Aloxaf/fzf-tab \
-                                        hlissner/zsh-autopair \
-  atinit'zicdreplay'                    zdharma-continuum/fast-syntax-highlighting
+                                  Aloxaf/fzf-tab \
+                                  hlissner/zsh-autopair \
+  atinit'zicdreplay'              zdharma-continuum/fast-syntax-highlighting
 
 # OMZ sudo plugin: prefix the current line with sudo. Its default Esc-Esc binding
 # collides with vi mode (Esc already leaves insert mode), so rebind to Alt-s and
@@ -111,6 +114,32 @@ bindkey -M vicmd 'j' history-search-forward
 # Word navigation
 bindkey '^[[1;5C' forward-word   # Ctrl+Right
 bindkey '^[[1;5D' backward-word  # Ctrl+Left
+
+# Cursor shape follows the keymap: beam in insert, block in normal. These are
+# DECSCUSR escapes (CSI Ps SP q), understood by alacritty, kitty, foot, wezterm
+# and VTE-based terminals. Terminals that don't know the sequence ignore it, so
+# there is nothing to guard against.
+_cursor_beam()  { print -n '\e[5 q' }  # 5 = blinking bar
+_cursor_block() { print -n '\e[2 q' }  # 2 = steady block
+
+# Fires on every keymap change, including the Esc that leaves insert mode.
+zle-keymap-select() {
+  case "$KEYMAP" in
+    vicmd|visual|viopp) _cursor_block ;;
+    *)                  _cursor_beam  ;;
+  esac
+}
+# Each new prompt starts in insert mode, so start from the beam. `zle -K viins`
+# is belt-and-braces: without it a line abandoned in normal mode (Ctrl-C) can
+# leave the next prompt in vicmd with a beam cursor.
+zle-line-init() { zle -K viins; _cursor_beam }
+zle -N zle-keymap-select
+zle -N zle-line-init
+
+# Hand the cursor back before running a command — otherwise a block cursor
+# leaks into whatever is launched (pagers, TUIs that don't set their own).
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec _cursor_beam
 
 # ── History ────────────────────────────────────────────────────
 HISTFILE="${XDG_STATE_HOME}/zsh/history"
@@ -172,19 +201,14 @@ zstyle ':fzf-tab:*'              switch-group ',' '.'
 zstyle ':fzf-tab:*' continuous-trigger '/'
 
 # ── Shell integrations (must come after compinit) ──────────────
-# carapace: completion engine covering ~1000 CLIs (gh, docker, kubectl).
-# Overlaps zsh-completions but is far broader and stays current.
+# carapace: completion engine covering ~1000 CLIs (gh, docker, kubectl). This
+# replaces zsh-users/zsh-completions entirely — broader coverage, stays current,
+# and one less turbo-loaded plugin. The zsh bridge still picks up any native
+# compsys completions on fpath (kubectl's cached script, distro-shipped ones),
+# so dropping the plugin loses nothing.
 if command -v carapace >/dev/null 2>&1; then
   export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
   source <(carapace _carapace)
-fi
-
-# atuin: SQLite-backed shell history — fuzzy search, per-directory filtering, exit
-# codes and durations, optional end-to-end encrypted sync.
-# --disable-up-arrow keeps the arrow-key history-search bindings set above; atuin
-# takes over Ctrl-R only. Drop the flag to let atuin own the up arrow too.
-if command -v atuin >/dev/null 2>&1; then
-  eval "$(atuin init zsh --disable-up-arrow)"
 fi
 
 # ── fzf ────────────────────────────────────────────────────────

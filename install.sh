@@ -163,11 +163,12 @@ collect_pkgs() {
 # ── Non-Arch (apt) package install ──────────────────────────────
 # Full parity with headless.txt for Debian/Ubuntu VMs and Codespaces. Package
 # names for the straightforward apt-get case live in packages/headless-apt.txt;
-# a handful of headless.txt tools have no apt package at all (starship, atuin,
-# rustup, yq, lazygit, gdu, bottom, fastfetch, gh) and are fetched below via
+# a handful of headless.txt tools have no apt package at all (starship, rustup,
+# yq, lazygit, gdu, bottom, fastfetch, carapace, gh) and are fetched below via
 # official installers, GitHub release binaries, or a third-party apt repo.
 # Everything here is idempotent (command -v guarded) and never fatal — one
-# tool failing to install warns and the run continues.
+# tool failing to install warns and the run continues. All of them land in
+# ~/.local/bin except rustup, which owns ~/.cargo/bin — .zshrc adds both.
 
 # Fetch a single-binary GitHub release into ~/.local/bin.
 #   $1 owner/repo
@@ -290,10 +291,6 @@ install_apt_headless() {
     curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir "$HOME/.local/bin" >/dev/null \
       || warn "starship install failed — install manually"
   fi
-  if ! command -v atuin >/dev/null 2>&1; then
-    curl --proto '=https' --tlsv1.2 -fsSL https://setup.atuin.sh | bash >/dev/null 2>&1 \
-      || warn "atuin install failed — install manually"
-  fi
   if ! command -v rustup >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y >/dev/null 2>&1 \
       || warn "rustup install failed — install manually"
@@ -306,6 +303,10 @@ install_apt_headless() {
   fetch_github_release_binary dundee/gdu "gdu_linux_amd64.tgz" gdu gdu_linux_amd64 || true
   fetch_github_release_binary ClementTsang/bottom "bottom_x86_64-unknown-linux-gnu.tar.gz" btm || true
   fetch_github_release_binary fastfetch-cli/fastfetch "fastfetch-linux-amd64.tar.gz" fastfetch || true
+  # carapace is the shell's only completion engine now that .zshrc no longer
+  # loads zsh-users/zsh-completions, so the apt path has to supply it too —
+  # it's carapace-bin in the AUR, but has no apt package.
+  fetch_github_release_binary carapace-sh/carapace-bin "carapace-bin_%V%_linux_amd64.tar.gz" carapace || true
   # No apt package, not on crates.io or PyPI either — GitHub release binary is
   # the only distribution channel. Needed by the fastfetch greeting's logo
   # source (`pokeget sylveon --hide-name` in dot_config/fastfetch/config.jsonc).
@@ -396,6 +397,26 @@ if [[ "$SKIP_PACKAGES" != true ]] && command -v pacman >/dev/null 2>&1; then
       "$AUR_HELPER" -S --needed --noconfirm "${PKGS[@]}" \
         || warn "$AUR_HELPER failed — check the package names in $PKG_DIR"
     fi
+  fi
+fi
+
+# ── Rust toolchain ─────────────────────────────────────────────
+# rustup is a manager, not a toolchain: Arch's `rustup` package installs only
+# the shims, and `cargo` on a fresh box errors with "no default toolchain" until
+# one is selected. (The apt path's sh.rustup.rs -y already picks stable, so this
+# is a no-op there.) Unprivileged — everything lands in ~/.rustup and
+# ~/.cargo/bin, which .zshrc puts on PATH.
+#
+# Guarded on `rustup default` rather than run unconditionally: a bare
+# `rustup default stable` hits the network on every re-run, and this script is
+# meant to be cheap to re-run. Non-fatal like the rest of the package phase.
+if [[ "$SKIP_PACKAGES" != true ]] && command -v rustup >/dev/null 2>&1; then
+  if rustup default >/dev/null 2>&1; then
+    log "Rust toolchain already selected ($(rustup default 2>/dev/null | cut -d' ' -f1))"
+  else
+    log "Installing the stable Rust toolchain (rustup default stable)"
+    rustup default stable >/dev/null 2>&1 \
+      || warn "rustup default stable failed — run it yourself once you have network"
   fi
 fi
 

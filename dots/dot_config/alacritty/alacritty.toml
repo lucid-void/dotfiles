@@ -47,7 +47,7 @@ opacity = 0.5
 x = 2
 y = 2
 
-# Matches `set -g history-limit 50000` in .tmux.conf, so scrollback depth is the
+# Matches `set -g history-limit 50000` in .config/tmux/tmux.conf, so scrollback depth is the
 # same whether or not you are inside tmux.
 [scrolling]
 history = 50000

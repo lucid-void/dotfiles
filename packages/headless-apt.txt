@@ -5,8 +5,8 @@
 # `apt-get install -y --no-install-recommends`, so re-runs are cheap.
 #
 # Not a 1:1 name mapping for everything — a few headless.txt tools have no apt
-# package at all (starship, atuin, rustup, yq, lazygit, gdu, bottom, fastfetch,
-# gh) and are installed separately by install.sh via official installers,
+# package at all (starship, rustup, yq, lazygit, gdu, bottom, fastfetch,
+# carapace, gh) and are installed separately by install.sh via official installers,
 # GitHub release binaries, or a third-party apt repo. See install.sh's
 # "Non-Arch (apt) package install" section for those.
 

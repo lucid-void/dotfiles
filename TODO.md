@@ -3,43 +3,12 @@
 Open items only — resolved work has been cleared out. Check `git log` for the
 history and reasoning behind decisions already made.
 
-## tmux
-
-> ⚠️ **Not validated by running it — tmux is not installed on this host.**
-> Option names and copy-mode commands were checked by inspection only. Run
-> `tmux -f ~/.tmux.conf new-session -d \; kill-session` once on a machine that
-> has tmux to confirm the config parses clean.
-
-- [ ] **XDG path.** Config deploys to `~/.tmux.conf`; tmux 3.1+ reads
-      `~/.config/tmux/tmux.conf`, which would match how the rest of this repo
-      is laid out. Moving it means `dot_tmux.conf` → `dot_config/tmux/tmux.conf`
-      and updating the `bind r source-file` path. Left alone since it changes
-      repo layout.
-- [ ] **No plugin manager (tpm).** Currently dependency-free, which suits the
-      headless/unattended targets. Worth keeping unless something specifically
-      needs it.
-- [ ] `bind l select-pane -R` shadows tmux's default `last-window` binding.
-- [ ] Pane navigation binds aren't `-r`, so each move needs the prefix again.
-      The resize binds are `-r`. Intentional?
 
 ## zsh
 
-- [ ] atuin on a fresh machine will prompt about sync/registration on first
-      run. Decide whether to ship an `atuin/config.toml` with
-      `auto_sync = false` to keep unattended installs quiet.
-- [ ] carapace and `zsh-completions` now overlap. If carapace works out,
-      dropping `zsh-completions` from the zinit block would cut startup work.
-- [ ] `KEYTIMEOUT=1` (10ms) is aggressive — it makes `ESC` snappy in vi mode
-      but can break multi-key terminal sequences. Consider 10–20 if anything
-      acts up.
-- [ ] Vi mode has no cursor-shape switching (beam on insert, block on normal),
-      which is the usual companion to `bindkey -v`.
 - [ ] `dot_zshrc.tmpl` contains **no** chezmoi template directives — it could
       just be `dot_zshrc`. Keeping the `.tmpl` suffix only makes sense if
       templating is coming.
-- [ ] `alias grep='rg'` / `alias find='fd'` shadow the POSIX tools with
-      incompatible CLIs. Interactive-only, so scripts are unaffected — but
-      worth deciding if you want them at all.
 
 ## Browsers
 

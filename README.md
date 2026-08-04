@@ -30,7 +30,6 @@ The flag is written into `~/.config/chezmoi/chezmoi.toml` on first install and r
 | neovim + AstroNvim | Editor |
 | VSCodium | GUI editor (desktop only) |
 | eza, bat, fd, ripgrep, fzf, zoxide | Modern CLI replacements |
-| atuin | SQLite shell history — fuzzy search, per-dir filtering, sync (Ctrl-R) |
 | carapace | Completion engine covering ~1000 CLIs |
 | lazygit | Git UI |
 | delta | Syntax-highlighting pager for `git diff` / `git log` |
@@ -101,11 +100,13 @@ Plain text, one package per line, `#` for comments. Live in [`packages/`](packag
 | [`packages/desktop-aur.txt`](packages/desktop-aur.txt) | Arch desktop only | AUR, via `paru` |
 | [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store, via `ExtensionInstallForcelist` policy |
 
-Desktop installs all four Arch lists; headless installs the two Arch `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package — those stay Arch/AUR-only, they're not part of the Debian/Ubuntu path.
+Desktop installs all four Arch lists; headless installs the two Arch `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package. That's an Arch packaging detail, not a platform restriction: `carapace` and `pokeget` are installed on the Debian/Ubuntu path too, as GitHub release binaries fetched by `install.sh`.
 
 **These lists replaced mise.** Every tool that used to be pinned in `dot_config/mise/config.toml` is now a system package on its repo version — there is no per-tool pinning and no version manager to activate. `pacman -Syu` is the update path on Arch.
 
-**Non-Arch parity.** On any host with `pacman`, the four Arch lists above are used. On a Debian/Ubuntu host (no `pacman`, but `apt-get`), `install.sh` installs `packages/headless-apt.txt` instead — full parity with `packages/headless.txt`'s tool set. Most names map straight to an apt package; `gh` comes from its own official apt repo (added automatically); `starship`, `atuin`, `rustup`, `lazygit`, `yq`, `gdu`, `bottom` and `fastfetch` have no apt package at all and are installed unprivileged into `~/.local/bin` via each project's official installer or GitHub release binary. `desktop.txt`/`desktop-aur.txt`/`headless-aur.txt` remain Arch/AUR-only — a Debian/Ubuntu host gets the headless tool set, not the desktop apps. On dnf (Fedora) or apk (Alpine) hosts the step is still skipped with a notice, same as before.
+**Rust is the one exception:** the list installs `rustup`, not the repo's `rust`, so Arch and Debian/Ubuntu both end up on the same upstream toolchain and Rust can follow stable without waiting on the repo package. rustup works through shims, so there is still nothing to activate in `.zshrc` — but it ships *no* toolchain of its own, and `cargo` on a fresh Arch box fails with "no default toolchain" until one is selected. `install.sh` runs `rustup default stable` after the package step (skipped when a default is already set, so re-runs stay cheap). `rustup update` is the update path for the toolchain itself; `pacman -Syu` only moves rustup.
+
+**Non-Arch parity.** On any host with `pacman`, the four Arch lists above are used. On a Debian/Ubuntu host (no `pacman`, but `apt-get`), `install.sh` installs `packages/headless-apt.txt` instead — full parity with `packages/headless.txt`'s tool set. Most names map straight to an apt package; `gh` comes from its own official apt repo (added automatically); `starship`, `rustup`, `lazygit`, `yq`, `gdu`, `bottom` and `fastfetch` have no apt package at all and are installed unprivileged via each project's official installer or GitHub release binary — into `~/.local/bin`, except `rustup`, which owns `~/.cargo/bin` (`.zshrc` adds both to `PATH`). `desktop.txt`/`desktop-aur.txt`/`headless-aur.txt` remain Arch/AUR-only — a Debian/Ubuntu host gets the headless tool set, not the desktop apps. On dnf (Fedora) or apk (Alpine) hosts the step is still skipped with a notice, same as before.
 
 Notes:
 

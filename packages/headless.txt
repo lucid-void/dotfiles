@@ -29,10 +29,6 @@ less
 # ── Prompt ─────────────────────────────────────────────────────
 starship
 
-# ── Shell history ──────────────────────────────────────────────
-# .zshrc initialises this with --disable-up-arrow; it takes Ctrl-R only.
-atuin
-
 # ── Remote access ──────────────────────────────────────────────
 openssh
 
@@ -82,15 +78,17 @@ gdu
 fastfetch
 
 # ── Languages ──────────────────────────────────────────────────
-# Plain `rust` rather than rustup: a single system-wide toolchain on its repo
-# version, no manager to activate — same as python/node below, no manual step
-# needed after install. These are single system-wide versions now — there is
-# no per-project runtime switching any more.
+# `rustup` rather than plain `rust`: the same upstream toolchain the apt path
+# already gets from sh.rustup.rs, so both hosts end up on one story, and it can
+# follow stable without waiting on the repo package. Unlike python/node below it
+# is a manager, so it needs one step the others don't — the Arch package ships
+# only shims and no toolchain until `rustup default stable` runs. install.sh
+# does that for you after the package step; nothing to do by hand.
 python
 python-pipx
 nodejs
 npm
-rust
+rustup
 
 # ── Arch housekeeping ──────────────────────────────────────────
 # paccache (cache pruning) and checkupdates (safe update check).
