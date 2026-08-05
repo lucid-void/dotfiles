@@ -51,16 +51,20 @@ info "shellcheck: ${#PLAIN[@]} plain scripts"
 # is ignored once a machine has a persisted answer and CI would silently lint
 # whatever the developer's own machine happens to be set to.
 for mode in true false; do
-  mkdir -p "$tmp/home-$mode/.config/chezmoi"
-  cat > "$tmp/home-$mode/.config/chezmoi/chezmoi.toml" <<EOF
+  cat > "$tmp/config-$mode.toml" <<EOF
 sourceDir = "$SOURCE_DIR"
 [data]
   isDesktop = $mode
 EOF
 done
 
+# The config is handed over with --config rather than by pointing $HOME at a
+# temp directory. chezmoi resolves its config under $XDG_CONFIG_HOME when that
+# is set and only falls back to $HOME/.config — GitHub's runners set it, most
+# workstations do not, so the $HOME trick worked locally and rendered with no
+# isDesktop at all in CI ("map has no entry for key"). --config outranks both.
 render() { # $1 = template path, $2 = true|false
-  HOME="$tmp/home-$2" chezmoi execute-template --source "$SOURCE_DIR" < "$1"
+  chezmoi execute-template --config "$tmp/config-$2.toml" --source "$SOURCE_DIR" < "$1"
 }
 
 mapfile -t TEMPLATES < <(cd "$REPO_DIR" && printf '%s\n' dots/run_*.tmpl)
@@ -77,6 +81,9 @@ for mode in true false; do
     if ! render "$REPO_DIR/$t" "$mode" > "$out" 2> "$tmp/err"; then
       red "render failed (isDesktop=$mode): $t"
       cat "$tmp/err" >&2
+      # Drop the empty file the redirection just created, so the count below
+      # reflects what actually rendered rather than what was attempted.
+      rm -f "$out"
       status=1
       continue
     fi
@@ -88,8 +95,19 @@ for mode in true false; do
   done
 done
 
-info "shellcheck: ${#TEMPLATES[@]} rendered templates (isDesktop=true)"
-shellcheck -s bash "$tmp"/render/true-* || status=1
+# Count what actually rendered rather than globbing blind. When every render
+# failed, the glob matched nothing and shellcheck was handed a literal `true-*`
+# — a confusing second error on top of the real one, and one bad `|| true` away
+# from a lint that passes because it checked nothing at all.
+mapfile -t RENDERED < <(find "$tmp/render" -maxdepth 1 -name 'true-*' -type f | sort)
+if [[ ${#RENDERED[@]} -ne ${#TEMPLATES[@]} ]]; then
+  red "only ${#RENDERED[@]} of ${#TEMPLATES[@]} templates rendered — skipping shellcheck on them"
+  status=1
+fi
+if [[ ${#RENDERED[@]} -gt 0 ]]; then
+  info "shellcheck: ${#RENDERED[@]} rendered templates (isDesktop=true)"
+  shellcheck -s bash "${RENDERED[@]}" || status=1
+fi
 
 # ── Repo hygiene ───────────────────────────────────────────────
 # Every run_ script chezmoi executes should be executable in the source tree
