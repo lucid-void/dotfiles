@@ -106,6 +106,14 @@ if ! curl -fsSL --retry 3 --connect-timeout 20 -o "$tmp/cws.crx" "$URL"; then
   exit 0
 fi
 
+# A CRX3 starts with the magic "Cr24". Catches an error page served with a 200,
+# which would otherwise be unpacked and loaded as an extension — the same check
+# run_install_browser_extensions.sh already makes on every CRX it fetches.
+if [[ "$(head -c 4 "$tmp/cws.crx")" != "Cr24" ]]; then
+  warn "downloaded file is not a CRX — skipping"
+  exit 0
+fi
+
 # A .crx is a small binary header (magic + version + protobuf) glued in front
 # of an ordinary zip archive, with manifest.json at its root. unzip locates the
 # zip's central directory by scanning backward from EOF, so it extracts fine —
@@ -119,14 +127,34 @@ fi
 
 # Stage the new copy beside the destination, then swap, so an interrupted run
 # never leaves a half-extracted extension where the browsers expect a working one.
+#
+# The old copy is moved aside rather than deleted first: `rm -rf "$DEST"`
+# followed by `mv` leaves a window where $DEST does not exist at all, and a kill
+# or a failed `mv` (EXDEV, ENOSPC, read-only $HOME) inside it left the browsers
+# launching against a dead --load-extension path.
 mkdir -p "$(dirname "$DEST")"
 rm -rf "$DEST.new"
 if ! mv "$tmp/extracted" "$DEST.new"; then
   warn "could not stage extension — skipping"
   exit 0
 fi
-rm -rf "$DEST"
-mv "$DEST.new" "$DEST"
+
+rm -rf "$DEST.old"
+if [[ -e "$DEST" ]] && ! mv "$DEST" "$DEST.old"; then
+  warn "could not move the installed copy aside — keeping it, skipping the update"
+  rm -rf "$DEST.new"
+  exit 0
+fi
+
+if ! mv "$DEST.new" "$DEST"; then
+  warn "could not install the new copy — rolling back"
+  if [[ -e "$DEST.old" ]] && ! mv "$DEST.old" "$DEST"; then
+    warn "rollback failed too — the extension is at $DEST.old, move it back by hand"
+  fi
+  rm -rf "$DEST.new"
+  exit 0
+fi
+rm -rf "$DEST.old"
 
 version="$(manifest_version "$DEST/manifest.json")"
 printf 'chromium-web-store: installed %s to %s\n' "${version:-unknown version}" "$DEST"

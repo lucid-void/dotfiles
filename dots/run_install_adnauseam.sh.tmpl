@@ -118,14 +118,35 @@ fi
 
 # Stage the new copy beside the destination, then swap, so an interrupted run
 # never leaves a half-extracted extension where the browsers expect a working one.
+#
+# The old copy is moved aside rather than deleted first: `rm -rf "$DEST"`
+# followed by `mv` leaves a window where $DEST does not exist at all, and a kill
+# or a failed `mv` (EXDEV, ENOSPC, read-only $HOME) inside it left the browsers
+# launching against a dead --load-extension path. Now the only way to lose the
+# working copy is for the rollback to fail too.
 mkdir -p "$(dirname "$DEST")"
 rm -rf "$DEST.new"
 if ! mv "$(dirname "$manifest")" "$DEST.new"; then
   warn "could not stage extension — skipping"
   exit 0
 fi
-rm -rf "$DEST"
-mv "$DEST.new" "$DEST"
+
+rm -rf "$DEST.old"
+if [[ -e "$DEST" ]] && ! mv "$DEST" "$DEST.old"; then
+  warn "could not move the installed copy aside — keeping it, skipping the update"
+  rm -rf "$DEST.new"
+  exit 0
+fi
+
+if ! mv "$DEST.new" "$DEST"; then
+  warn "could not install the new copy — rolling back"
+  if [[ -e "$DEST.old" ]] && ! mv "$DEST.old" "$DEST"; then
+    warn "rollback failed too — the extension is at $DEST.old, move it back by hand"
+  fi
+  rm -rf "$DEST.new"
+  exit 0
+fi
+rm -rf "$DEST.old"
 
 version="$(manifest_version "$DEST/manifest.json")"
 printf 'adnauseam: installed %s to %s\n' "${version:-unknown version}" "$DEST"

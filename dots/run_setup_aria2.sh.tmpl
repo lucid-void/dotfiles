@@ -46,7 +46,10 @@ if ! command -v systemctl >/dev/null 2>&1; then
   exit 0
 fi
 
-mkdir -p "$CONF_DIR" "$(dirname "$SESSION")"
+mkdir -p "$CONF_DIR" "$(dirname "$SESSION")" || {
+  warn "could not create $CONF_DIR — skipping daemon setup"
+  exit 0
+}
 
 # aria2 refuses to start when input-file names a path that does not exist, and
 # aria2.conf points input-file and save-session at this one file so a restart
@@ -68,15 +71,27 @@ if [[ ! -f "$SECRET_ENV" ]]; then
   printf 'aria2: generated a new RPC secret. Paste it into the Aria2 Explorer\n'
   printf '       options page under RPC > secret token:\n\n         %s\n\n' "$secret"
 fi
-chmod 600 "$SECRET_ENV" 2>/dev/null
+# Not silenced: this file holds the RPC token, and a chmod that fails leaves it
+# readable by every process on the machine. That is worth a warning.
+chmod 600 "$SECRET_ENV" || warn "could not chmod 600 $SECRET_ENV — the RPC token may be world-readable"
 
 # A user unit does not exist for systemd until it is told to look again, and the
 # file may well have changed since the last apply.
-systemctl --user daemon-reload 2>/dev/null
+#
+# systemd's own stderr is reported rather than discarded. It says which of half
+# a dozen unrelated things went wrong ("Failed to connect to bus", "Unit
+# aria2.service not found", "EnvironmentFile ... not found"), where the guess
+# below only covers one — and aria2.service deliberately uses a hard
+# `EnvironmentFile=` with no leading `-` precisely so a missing secret fails
+# loudly, which suppressing stderr here defeated.
+if ! reload_err="$(systemctl --user daemon-reload 2>&1)"; then
+  warn "systemctl --user daemon-reload failed: ${reload_err:-no output}"
+fi
 
-if ! systemctl --user enable --now "$UNIT" 2>/dev/null; then
-  warn "could not enable $UNIT — no user systemd instance? (a headless login"
-  warn "needs \`loginctl enable-linger $USER\` before --user units will run)"
+if ! enable_err="$(systemctl --user enable --now "$UNIT" 2>&1)"; then
+  warn "could not enable $UNIT: ${enable_err:-no output}"
+  warn "if there is no user systemd instance, a headless login needs"
+  warn "\`loginctl enable-linger $USER\` before --user units will run"
   exit 0
 fi
 
