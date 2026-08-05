@@ -17,21 +17,15 @@
 # systemd needs a daemon-reload when it does. Every step is idempotent, and the
 # secret is generated only when absent — re-running never invalidates the token
 # already pasted into the extension's options page.
-{{ if not .isDesktop }}
-# Headless machine: no browser to hand downloads off from.
-exit 0
-{{ end }}
-# Deliberately not `set -e`, matching run_install_adnauseam.sh: a chezmoi script
-# exiting non-zero aborts the entire apply, and a download daemon is not worth
-# failing a dotfiles install over. Every failure path below warns and exits 0.
-set -uo pipefail
-
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "aria2"
+     "what"   "a download daemon"
+     "why"    "no browser to hand downloads off from"
+     "ctx"    .) }}
 CONF_DIR="$HOME/.config/aria2"
 SECRET_ENV="$CONF_DIR/rpc-secret.env"
 SESSION="$HOME/.local/state/aria2/session"
 UNIT="aria2.service"
-
-warn() { printf 'aria2: %s\n' "$*" >&2; }
 
 # Ordering safety net rather than a real branch: packages/desktop.txt installs
 # aria2, but install.sh runs the package step and `chezmoi apply` in that order

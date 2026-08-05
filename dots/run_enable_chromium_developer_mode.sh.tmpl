@@ -21,19 +21,13 @@
 # recorded as done and never retried. Running on every `chezmoi apply` instead
 # means it keeps trying until it succeeds, and it exits without writing once
 # the pref is already set — so a steady-state apply touches nothing.
-{{ if not .isDesktop }}
-# Headless machine: no browser profile to configure.
-exit 0
-{{ end }}
-# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
-# whole `chezmoi apply`, and a browser preference is not worth failing a
-# dotfiles install over. Every failure path below warns and exits 0.
-set -uo pipefail
-
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "chromium-devmode"
+     "what"   "a browser preference"
+     "why"    "no browser profile to configure"
+     "ctx"    .) }}
 PROFILE="$HOME/.config/chromium/Default"
 PREFS="$PROFILE/Preferences"
-
-warn() { printf 'chromium-devmode: %s\n' "$*" >&2; }
 
 if ! command -v jq >/dev/null 2>&1; then
   warn "jq not found — skipping (enable Developer mode by hand on chrome://extensions)"

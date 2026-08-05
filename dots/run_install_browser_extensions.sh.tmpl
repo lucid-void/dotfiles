@@ -45,21 +45,26 @@
 # extensions actually receive updates instead of being pinned to whatever was
 # current on the day they were first installed. An apply with nothing new costs
 # a single request for the whole list and touches nothing on disk.
-{{ if not .isDesktop }}
-# Headless machine: no browser to install into.
-exit 0
-{{ end }}
-# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
-# whole `chezmoi apply`, and browser extensions are not worth failing a dotfiles
-# install over. Every failure path below warns and carries on.
-set -uo pipefail
-
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "browser-extensions"
+     "what"   "browser extensions"
+     "why"    "no browser to install into"
+     "ctx"    .) }}
 # The extension list lives outside the chezmoi source directory, so it is
 # embedded here at apply time rather than read at run time. `.chezmoiroot` pins
 # the source directory to <repo>/dots, which makes ../packages deterministic.
 # Embedding also means the rendered script changes whenever the list changes,
 # which is what lets chezmoi notice an edit at all.
 {{- $extList := joinPath .chezmoi.sourceDir ".." "packages" "browser-extensions.txt" }}
+{{- if not (stat $extList) }}
+# packages/browser-extensions.txt was not found at render time. Say so
+# explicitly: an empty list here is indistinguishable from a missing file once
+# the heredoc is written, and "no valid extension IDs" reads as "your list is
+# empty" rather than "the file chezmoi expected is gone".
+warn "packages/browser-extensions.txt not found — no extensions to manage"
+warn "  expected at {{ $extList }}"
+exit 0
+{{- end }}
 EXT_LIST_RAW="$(cat <<'DOTFILES_EXTENSION_LIST'
 {{ if stat $extList }}{{ include $extList }}{{ end }}
 DOTFILES_EXTENSION_LIST
@@ -74,8 +79,6 @@ DOTFILES_EXTENSION_LIST
 CRX_DIR="$HOME/.local/share/chromium-extensions"
 STATE="$CRX_DIR/.managed-ids"
 STORE="https://clients2.google.com/service/update2/crx"
-
-warn() { printf 'browser-extensions: %s\n' "$*" >&2; }
 
 # ── Browsers ───────────────────────────────────────────────────
 # "<command>|<user-data-dir>". The External Extensions directory is always

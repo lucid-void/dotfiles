@@ -1,0 +1,39 @@
+{{/*
+  The opening every desktop-only `run_` script in this repo shares: the
+  .isDesktop gate, the "deliberately not set -e" rationale, and warn().
+
+  Called immediately after the script's own header comment:
+
+      {{ includeTemplate "sh-preamble" (dict
+           "prefix" "aria2"
+           "what"   "a download daemon"
+           "why"    "no browser to hand downloads off from"
+           "ctx"    .) }}
+
+  Parameters:
+    prefix  log prefix — warn() emits "<prefix>: <message>" on stderr
+    what    what this script installs, for the rationale sentence:
+            "… and <what> is not worth failing a dotfiles install over"
+    why     why a headless machine skips it, as a comment on the gate
+    ctx     the root template context, so .isDesktop is reachable
+
+  `ctx` is passed explicitly because includeTemplate replaces `.` with the
+  dict: inside this file `.isDesktop` does not exist, only `.ctx.isDesktop`.
+
+  The rationale is not boilerplate worth losing. chezmoi runs scripts in
+  target-name order, so a script that exits non-zero takes every script sorting
+  after it down with it — that is a real failure this repo has hit, and keeping
+  the explanation in one place stops the next script from rediscovering it.
+*/ -}}
+{{ if not .ctx.isDesktop }}
+# Headless machine: {{ .why }}.
+exit 0
+{{ end }}
+# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
+# whole `chezmoi apply` — and chezmoi runs scripts in target-name order, so it
+# takes every script sorting after this one down with it — and {{ .what }} is
+# not worth failing a dotfiles install over. Every failure path below warns and
+# exits 0.
+set -uo pipefail
+
+warn() { printf '{{ .prefix }}: %s\n' "$*" >&2; }

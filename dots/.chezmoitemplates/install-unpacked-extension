@@ -1,0 +1,195 @@
+{{/*
+  The body of every "install a browser extension unpacked from a GitHub release"
+  script in this repo. Both callers — run_install_adnauseam.sh.tmpl and
+  run_install_chromium_web_store.sh.tmpl — used to carry their own byte-identical
+  copy of all of this; only three strings and the archive's shape ever differed,
+  and the two copies had already started to drift (one had a guarded final `mv`,
+  the other did not; one checked the CRX magic bytes, the other did not).
+
+  Called as:
+
+      {{ includeTemplate "install-unpacked-extension" (dict
+           "name"     "adnauseam"
+           "dest"     "adnauseam"
+           "release"  "https://github.com/dhowe/AdNauseam/releases/latest"
+           "asset"    "adnauseam.chromium.zip"
+           "nested"   true
+           "ctx"      .) }}
+
+  Parameters:
+    name     log prefix, e.g. "adnauseam:  could not …"
+    dest     directory under ~/.local/share to install into
+    release  the project's .../releases/latest URL
+    asset    filename of the release asset (an unversioned "latest" alias)
+    nested   true  — the archive holds a top-level directory with the extension
+                     inside it (a normal release zip)
+             false — manifest.json sits at the archive root (a .crx)
+    ctx      the root template context, so .isDesktop is reachable
+
+  `ctx` is passed explicitly because includeTemplate replaces `.` with the dict:
+  inside this file `.isDesktop` does not exist, only `.ctx.isDesktop`.
+
+  The caller supplies the shebang and its own header comment explaining why that
+  particular extension is installed this way; everything below the header is
+  this template.
+*/ -}}
+{{ if not .ctx.isDesktop }}
+# Headless machine: no browser to load the extension into.
+exit 0
+{{ end }}
+# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
+# whole `chezmoi apply`, and a browser extension is not worth failing a dotfiles
+# install over. Every failure path below warns and exits 0; Chromium ignores a
+# missing --load-extension directory, so skipping degrades quietly.
+set -uo pipefail
+
+DEST="$HOME/.local/share/{{ .dest }}"
+RELEASE="{{ .release }}"
+URL="$RELEASE/download/{{ .asset }}"
+
+warn() { printf '{{ .name }}: %s\n' "$*" >&2; }
+
+# Reads the "version" field out of an extension manifest, empty if absent.
+# Upstream tags releases as vX.Y.Z and ships the same X.Y.Z in manifest.json, so
+# the two are directly comparable once the tag's leading `v` is stripped.
+manifest_version() {
+  [[ -f "$1" ]] || return 0
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
+}
+
+for cmd in curl unzip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    warn "$cmd not found — skipping install (Chromium tolerates the missing dir)"
+    exit 0
+  fi
+done
+
+installed="$(manifest_version "$DEST/manifest.json")"
+
+# `releases/latest` redirects to the newest tag's page, so the effective URL
+# after following it names the version. That is one unauthenticated HEAD request
+# against an ordinary web page — no GitHub API call, so no rate limit to trip
+# over on a machine that applies often.
+latest=""
+if effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+      --connect-timeout 10 --max-time 30 "$RELEASE" 2>/dev/null)"; then
+  # …/releases/tag/v3.28.8 -> 3.28.8. Anything else means upstream changed the
+  # URL shape; leave `latest` empty rather than guessing at a version.
+  if [[ "$effective" == */releases/tag/* ]]; then
+    latest="${effective##*/releases/tag/}"
+    latest="${latest#v}"
+  fi
+fi
+
+if [[ -z "$latest" ]]; then
+  # Offline, or the redirect no longer points at a tag. An existing install
+  # keeps working, so leave it alone rather than clobbering it blindly.
+  if [[ -n "$installed" ]]; then
+    warn "could not determine latest version — keeping installed $installed"
+    exit 0
+  fi
+  warn "could not determine latest version — attempting install anyway"
+fi
+
+# Skip when the installed copy is already at or ahead of the latest release.
+# `sort -V` compares version strings numerically (3.28.8 sorts after 3.9.0,
+# which a lexical compare gets backwards); if the newest of the two is what's
+# already on disk, there is nothing to do.
+if [[ -n "$installed" && -n "$latest" ]]; then
+  newest="$(printf '%s\n%s\n' "$installed" "$latest" | sort -V 2>/dev/null | tail -1)"
+  if [[ -z "$newest" ]]; then
+    # No `sort -V` (non-GNU sort): fall back to reinstalling on any mismatch.
+    [[ "$installed" == "$latest" ]] && exit 0
+  elif [[ "$newest" == "$installed" ]]; then
+    exit 0
+  fi
+  printf '{{ .name }}: updating %s -> %s\n' "$installed" "$latest"
+fi
+
+tmp="$(mktemp -d)" || { warn "could not create temp dir — skipping"; exit 0; }
+trap 'rm -rf "$tmp"' EXIT
+
+# `latest/download/{{ .asset }}` is an unversioned alias the project publishes
+# alongside its versioned assets, so this always tracks the newest release
+# without having to parse the GitHub API.
+if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -o "$tmp/asset" "$URL"; then
+  warn "download failed — skipping"
+  exit 0
+fi
+
+if [[ ! -s "$tmp/asset" ]]; then
+  warn "downloaded asset is empty — skipping"
+  exit 0
+fi
+{{ if not .nested }}
+# A CRX3 starts with the magic "Cr24". Catches an error page served with a 200,
+# which would otherwise be unpacked and loaded as an extension — the same check
+# run_install_browser_extensions.sh makes on every CRX it fetches.
+if [[ "$(head -c 4 "$tmp/asset")" != "Cr24" ]]; then
+  warn "downloaded file is not a CRX — skipping"
+  exit 0
+fi
+
+# A .crx is a small binary header (magic + version + protobuf) glued in front of
+# an ordinary zip, with manifest.json at its root. unzip locates the zip's
+# central directory by scanning backward from EOF, so it extracts fine — it just
+# warns about the leading header bytes and exits 1 even on success. Check for
+# manifest.json instead of the exit code.
+unzip -q -o "$tmp/asset" -d "$tmp/extracted" 2>/dev/null
+if [[ ! -f "$tmp/extracted/manifest.json" ]]; then
+  warn "no manifest.json found after extraction — skipping"
+  exit 0
+fi
+staged="$tmp/extracted"
+{{ else }}
+if ! unzip -q "$tmp/asset" -d "$tmp/extracted"; then
+  warn "archive did not extract — skipping"
+  exit 0
+fi
+
+# The zip holds a single top-level directory with manifest.json inside. Locate
+# that directory instead of hardcoding its name: if upstream renames it,
+# hardcoding would silently install a nested folder Chromium cannot load.
+manifest="$(find "$tmp/extracted" -maxdepth 2 -name manifest.json -print -quit)"
+if [[ -z "$manifest" ]]; then
+  warn "no manifest.json found in archive — skipping"
+  exit 0
+fi
+staged="$(dirname "$manifest")"
+{{ end }}
+# Stage the new copy beside the destination, then swap, so an interrupted run
+# never leaves a half-extracted extension where the browsers expect a working one.
+#
+# The old copy is moved aside rather than deleted first: `rm -rf "$DEST"`
+# followed by `mv` leaves a window where $DEST does not exist at all, and a kill
+# or a failed `mv` (EXDEV, ENOSPC, read-only $HOME) inside it left the browsers
+# launching against a dead --load-extension path. Now the only way to lose the
+# working copy is for the rollback to fail too.
+mkdir -p "$(dirname "$DEST")"
+rm -rf "$DEST.new"
+if ! mv "$staged" "$DEST.new"; then
+  warn "could not stage extension — skipping"
+  exit 0
+fi
+
+rm -rf "$DEST.old"
+if [[ -e "$DEST" ]] && ! mv "$DEST" "$DEST.old"; then
+  warn "could not move the installed copy aside — keeping it, skipping the update"
+  rm -rf "$DEST.new"
+  exit 0
+fi
+
+if ! mv "$DEST.new" "$DEST"; then
+  warn "could not install the new copy — rolling back"
+  if [[ -e "$DEST.old" ]] && ! mv "$DEST.old" "$DEST"; then
+    warn "rollback failed too — the extension is at $DEST.old, move it back by hand"
+  fi
+  rm -rf "$DEST.new"
+  exit 0
+fi
+rm -rf "$DEST.old"
+
+version="$(manifest_version "$DEST/manifest.json")"
+printf '{{ .name }}: installed %s to %s\n' "${version:-unknown version}" "$DEST"
+printf '{{ .name }}: restart Brave / Chromium to load it\n'
+exit 0
