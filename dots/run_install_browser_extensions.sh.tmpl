@@ -112,8 +112,9 @@ for cmd in curl unzip; do
   fi
 done
 
-# Same parse as install.sh: strip comments, keep only well-formed 32-char IDs so
-# a typo produces one skipped extension rather than a broken JSON file.
+# Strip comments, keep only well-formed 32-char IDs so a typo produces one
+# skipped extension rather than a broken JSON file. (install.sh used to carry
+# the same parse; it no longer touches extensions at all.)
 # NB: strip spaces/tabs/CR but NOT newlines — `tr -d '[:space:]'` would fold the
 # whole list onto one line and match nothing.
 mapfile -t EXT_IDS < <(printf '%s\n' "$EXT_LIST_RAW" | sed 's/#.*//' | tr -d ' \t\r' | grep -E '^[a-p]{32}$' || true)
@@ -137,12 +138,25 @@ for cmd in "${NAMES[@]}"; do
     PRODVERSION="$v"
   fi
 done
-[[ -n "$PRODVERSION" ]] || PRODVERSION="140.0"
+if [[ -z "$PRODVERSION" ]]; then
+  # Only reachable when neither browser's --version output parsed, which is
+  # exactly when this constant is most likely to have gone stale — so say so
+  # rather than silently negotiating on behalf of a version from years ago.
+  PRODVERSION="140.0"
+  warn "could not read a version from ${NAMES[*]} — asking the store as $PRODVERSION"
+  warn "  if extensions install but misbehave, bump the fallback in this script"
+fi
 
 mkdir -p "$CRX_DIR" 2>/dev/null || {
   warn "could not create $CRX_DIR — skipping"
   exit 0
 }
+
+# One temp dir for the whole run, cleaned up by a single trap. Each iteration
+# used to mktemp -d its own and hand-roll `rm -rf` on five separate paths, so an
+# interrupt mid-loop left them behind in /tmp.
+tmp="$(mktemp -d)" || { warn "could not create temp dir — skipping"; exit 0; }
+trap 'rm -rf "$tmp"' EXIT
 for dir in "${EXT_DIRS[@]}"; do
   mkdir -p "$dir" 2>/dev/null || {
     warn "could not create $dir — skipping"
@@ -269,8 +283,6 @@ for id in "${EXT_IDS[@]}"; do
     warn "$id: cached CRX unreadable — re-downloading"
   fi
 
-  tmp="$(mktemp -d)" || { warn "$id: no temp dir — skipping"; failed=$((failed + 1)); continue; }
-
   # Prefer the blob URL the probe already resolved: it is the exact build the
   # version check passed judgement on, so there is no window in which the store
   # rotates to a newer one between probe and fetch. Without it (probe failed, or
@@ -280,7 +292,7 @@ for id in "${EXT_IDS[@]}"; do
 
   if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$tmp/ext.crx" "$src"; then
     warn "$id: download failed — keeping whatever is already installed"
-    rm -rf "$tmp"; failed=$((failed + 1)); continue
+    failed=$((failed + 1)); continue
   fi
 
   # A CRX3 starts with the magic "Cr24". Catches an error page served with a
@@ -288,13 +300,13 @@ for id in "${EXT_IDS[@]}"; do
   # inside the browser instead of here.
   if [[ "$(head -c 4 "$tmp/ext.crx")" != "Cr24" ]]; then
     warn "$id: downloaded file is not a CRX — skipping"
-    rm -rf "$tmp"; failed=$((failed + 1)); continue
+    failed=$((failed + 1)); continue
   fi
 
   mver="$(crx_version "$tmp/ext.crx")"
   if [[ -z "$mver" ]]; then
     warn "$id: no version in manifest — skipping"
-    rm -rf "$tmp"; failed=$((failed + 1)); continue
+    failed=$((failed + 1)); continue
   fi
 
   # "Update" rather than "install" if any browser already had this extension
@@ -308,9 +320,8 @@ for id in "${EXT_IDS[@]}"; do
 
   if ! mv "$tmp/ext.crx" "$crx"; then
     warn "$id: could not store CRX — skipping"
-    rm -rf "$tmp"; failed=$((failed + 1)); continue
+    failed=$((failed + 1)); continue
   fi
-  rm -rf "$tmp"
 
   # Drop older cached builds of this extension. The CRX has to stay on disk for
   # first install on a fresh profile, but only the current one is ever used.

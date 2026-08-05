@@ -98,7 +98,7 @@ Plain text, one package per line, `#` for comments. Live in [`packages/`](packag
 | [`packages/headless-aur.txt`](packages/headless-aur.txt) | every Arch machine, desktop included | AUR, via `paru` |
 | [`packages/desktop.txt`](packages/desktop.txt) | Arch desktop only | official repos, via `pacman` |
 | [`packages/desktop-aur.txt`](packages/desktop-aur.txt) | Arch desktop only | AUR, via `paru` |
-| [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store, via enterprise policy |
+| [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store CRXs, registered per-profile by [`dots/run_install_browser_extensions.sh.tmpl`](dots/run_install_browser_extensions.sh.tmpl) |
 
 Desktop installs all four Arch lists; headless installs the two Arch `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package. That's an Arch packaging detail, not a platform restriction: `carapace` and `pokeget` are installed on the Debian/Ubuntu path too, as GitHub release binaries fetched by `install.sh`.
 
