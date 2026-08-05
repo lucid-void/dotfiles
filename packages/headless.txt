@@ -39,6 +39,12 @@ man-pages
 # ── Editor ─────────────────────────────────────────────────────
 neovim
 
+# ── Shell tooling ──────────────────────────────────────────────
+# scripts/lint.sh needs shellcheck; CI runs the same script. shfmt is here for
+# ad-hoc use — the lint deliberately does not enforce it, see scripts/lint.sh.
+shellcheck
+shfmt
+
 # ── Git ────────────────────────────────────────────────────────
 # git-delta is .gitconfig's `core.pager`. That entry probes for it at runtime
 # and falls back to `less`, so a failed install costs syntax highlighting

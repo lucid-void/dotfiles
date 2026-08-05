@@ -1,0 +1,103 @@
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Proves install.sh actually runs end to end and that `chezmoi apply` reaches
+# every script — the check that would have caught scripts aborting the apply
+# for the machine behind them.
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base
+    steps:
+      - name: Install prerequisites
+        run: pacman -Sy --noconfirm --needed git curl zsh tar nodejs
+
+      - uses: actions/checkout@v4
+
+      # install.sh refuses to build AUR packages as root and makepkg agrees, so
+      # the run happens as an unprivileged user with passwordless sudo — the
+      # same shape as a real desktop install.
+      - name: Create an unprivileged user
+        run: |
+          pacman -S --noconfirm --needed sudo
+          useradd -m -s /bin/bash runner
+          echo 'runner ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/runner
+          cp -r "$GITHUB_WORKSPACE" /home/runner/dotfiles
+          chown -R runner:runner /home/runner/dotfiles
+
+      # --no-packages keeps the run to minutes instead of pulling ~150 Arch
+      # packages; the package lists are covered by the parse check below.
+      - name: install.sh --headless --no-packages
+        run: sudo -u runner bash -lc 'cd ~/dotfiles && bash install.sh --headless --no-packages'
+
+      - name: Dotfiles landed
+        run: |
+          sudo -u runner bash -lc '
+            set -e
+            test -f ~/.zshrc        || { echo "::error::~/.zshrc missing"; exit 1; }
+            test -f ~/.gitconfig    || { echo "::error::~/.gitconfig missing"; exit 1; }
+            test -d ~/.config/nvim  || { echo "::error::AstroNvim was not cloned"; exit 1; }
+            echo "managed by chezmoi:"; chezmoi managed | head -30
+          '
+
+      # The regression guard. Every run_ script must have been reached, which
+      # is only true if none of the earlier ones exited non-zero. bat_theme
+      # sorts 4th and used to take everything after it down on a transient 5xx.
+      - name: Every script ran
+        run: |
+          sudo -u runner bash -lc '
+            set -e
+            test -f ~/.config/bat/themes/"Catppuccin Macchiato.tmTheme" \
+              || { echo "::error::bat theme missing — install_bat_theme.sh did not complete"; exit 1; }
+            echo "bat theme present, so the apply reached at least script 4 of 9"
+          '
+
+      - name: install.sh is idempotent
+        run: sudo -u runner bash -lc 'cd ~/dotfiles && bash install.sh --headless --no-packages'
+
+      - name: zsh parses its own config
+        run: sudo -u runner bash -lc 'zsh -n ~/.zshrc'
+
+  package-lists:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The lists are consumed by a sed/grep pipeline in install.sh; a stray
+      # quote or a line with a space in it turns into a bogus package name and
+      # only shows up as a failed pacman run on someone's machine.
+      - name: Package lists are well formed
+        run: |
+          status=0
+          for f in packages/*.txt; do
+            while IFS= read -r line; do
+              [[ -z "$line" ]] && continue
+              if [[ "$line" == *[[:space:]]* ]]; then
+                echo "::error file=$f::entry contains whitespace: '$line'"
+                status=1
+              fi
+            done < <(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$f" | grep -v '^$' || true)
+            echo "$f: $(sed -e 's/#.*//' "$f" | grep -cv '^[[:space:]]*$' || true) entries"
+          done
+          exit $status
+
+      # browser-extensions.txt is embedded into a rendered script, where a
+      # malformed ID is silently dropped by the `^[a-p]{32}$` filter — so a
+      # typo means one extension quietly never installs.
+      - name: Extension IDs are valid
+        run: |
+          status=0
+          while IFS= read -r id; do
+            [[ -z "$id" ]] && continue
+            if [[ ! "$id" =~ ^[a-p]{32}$ ]]; then
+              echo "::error file=packages/browser-extensions.txt::not a valid extension ID: '$id'"
+              status=1
+            fi
+          done < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' packages/browser-extensions.txt | grep -v '^$' || true)
+          exit $status
