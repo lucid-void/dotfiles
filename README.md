@@ -341,3 +341,47 @@ bash install.sh    # add --headless on a non-desktop host
 Source `~/.zshrc.local` for anything machine-specific (extra aliases, env vars, etc.) — it's loaded last and not tracked.
 
 SSH host configs go in `~/.ssh/config.private` — included by the tracked SSH config but not committed.
+
+## Editing the scripts
+
+Run the linter before pushing. CI ([`.github/workflows/lint.yml`](.github/workflows/lint.yml)) runs this exact script, so a clean local run means a clean CI run:
+
+```bash
+./scripts/lint.sh          # needs shellcheck + chezmoi, both in packages/headless.txt
+```
+
+It shellchecks the plain scripts, then renders every `.tmpl` through `chezmoi execute-template` in **both** `isDesktop` modes — they aren't valid bash on disk — checks each rendered script parses, and shellchecks the desktop render.
+
+`shfmt` isn't enforced. The formatting here (aligned `case` arms, short `cmd; cmd ;;` bodies) is deliberate and shfmt rewrites all of it, so it'd mean either one enormous reflow or a check that never passes.
+
+### Two rules worth knowing before adding a script
+
+**Never `set -e` in a `run_` script.** chezmoi executes scripts in **target-name order** — the source filename with the `run_`/`run_once_` prefix stripped — so `run_once_install_bat_theme.sh` runs 4th, before `run_install_browser_extensions.sh`. A script that exits non-zero aborts the whole `chezmoi apply`, taking every script *after* it down too. That's not hypothetical: a broken URL in the bat theme script used to leave the aria2 daemon, both browsers' extensions and the fonts uninstalled. Use `set -uo pipefail` and make every failure path `warn` and `exit 0`.
+
+The shared preamble in [`dots/.chezmoitemplates/sh-preamble`](dots/.chezmoitemplates/sh-preamble) gives you that, plus the `.isDesktop` gate and `warn()`:
+
+```gotemplate
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "my-script"
+     "what"   "the thing it installs"
+     "why"    "why headless machines skip it"
+     "ctx"    .) }}
+```
+
+**`.chezmoiignore` matches target names too.** It's `install_fonts.sh`, not `run_once_install_fonts.sh`. Check any change with `chezmoi managed | grep install_`.
+
+### Installing another unpacked extension
+
+[`dots/.chezmoitemplates/install-unpacked-extension`](dots/.chezmoitemplates/install-unpacked-extension) is the whole body of an "install from a GitHub release, gate on version, swap atomically" script. A new one is a header comment plus:
+
+```gotemplate
+{{ includeTemplate "install-unpacked-extension" (dict
+     "name"    "log-prefix"
+     "dest"    "dirname-under-.local/share"
+     "release" "https://github.com/owner/repo/releases/latest"
+     "asset"   "the-unversioned-latest-asset.zip"
+     "nested"  true
+     "ctx"     .) }}
+```
+
+`nested` is `true` when the archive holds a top-level directory with the extension inside (a normal release zip) and `false` when `manifest.json` sits at the root (a `.crx`). Add the new directory to `--load-extension` in [`dots/.chezmoitemplates/browser-extension-flags`](dots/.chezmoitemplates/browser-extension-flags) so both browsers load it.
