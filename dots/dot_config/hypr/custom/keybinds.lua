@@ -3,6 +3,8 @@ hl.unbind("SUPER + Tab")
 hl.unbind("SUPER + SHIFT + L")
 -- hl.unbind("SUPER + Tab")
 
+hl.bind("SUPER + Space", hl.dsp.global("quickshell:searchToggleRelease"))
+
 --#/# bind = SUPER, Escape, -- Send window to scratchpad
 hl.bind("SUPER + Escape", hl.dsp.window.move({ workspace = "special:special", follow = true }),
     { description = "Window: Send to scratchpad" })

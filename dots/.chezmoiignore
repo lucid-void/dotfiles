@@ -8,6 +8,12 @@
 .config/VSCodium
 .local/share/applications
 
+# The aria2 daemon exists solely to catch downloads handed off by a browser
+# extension, so it follows the browser. run_setup_aria2.sh guards itself on
+# .isDesktop the same way run_install_adnauseam.sh does, and no-ops here.
+.config/aria2
+.config/systemd/user/aria2.service
+
 # Nerd Fonts are pointless where nothing renders a glyph — headless nodes, VMs
 # and Codespaces all draw in the *local* terminal. Skipping the download saves
 # ~50 MB and the fontconfig dependency.

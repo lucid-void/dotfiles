@@ -1,0 +1,57 @@
+# aria2 daemon configuration — desktop only.
+#
+# Read by ~/.config/systemd/user/aria2.service via --conf-path. The daemon
+# exists for one job: receiving downloads that the Aria2 Explorer extension
+# cancels out of Brave and re-issues over JSON-RPC.
+#
+# The RPC secret is deliberately absent from this file. It is generated per
+# machine into ~/.config/aria2/rpc-secret.env by dots/run_setup_aria2.sh.tmpl
+# and injected by the unit, so nothing secret ever reaches the repo.
+
+# ── RPC ────────────────────────────────────────────────────────
+# listen-all=false binds 127.0.0.1 only. The extension talks to localhost, so
+# there is no reason to put an unauthenticated-by-default port on the LAN.
+#
+# allow-origin-all is not optional despite how it reads: the extension's POST
+# arrives from a chrome-extension:// origin, and aria2 rejects the cross-origin
+# request without it. It widens which *origins* may call a port that is already
+# localhost-only and secret-gated — not who can reach the port.
+enable-rpc=true
+rpc-listen-all=false
+rpc-listen-port=6800
+rpc-allow-origin-all=true
+
+# ── Connection strategy ────────────────────────────────────────
+# 16 is aria2's hard ceiling for max-connection-per-server; a larger number is
+# silently clamped, so 16 here means "as many as allowed", not "16 is tuned".
+# min-split-size=1M stops it splitting files so small that the extra round
+# trips cost more than the parallelism saves.
+#
+# Measured against the file hosts this was built for: eight connections moved
+# ~9.8 MB/s where Brave's single stream managed ~3.5 MB/s. Real, but sub-linear
+# — those origins throttle per client, not only per connection. Do not read 16
+# as 16x. Anything already cached at a CDN edge is fast in the browser too and
+# gains nothing from being routed through here.
+continue=true
+max-connection-per-server=16
+split=16
+min-split-size=1M
+max-concurrent-downloads=5
+
+# ── Disk ───────────────────────────────────────────────────────
+# falloc preallocates in a single syscall. On btrfs — which is what /home is on
+# this machine — that matters more than usual: the incremental-write
+# alternative fragments a multi-gigabyte file badly as it grows.
+dir={{ .chezmoi.homeDir }}/Downloads
+file-allocation=falloc
+auto-file-renaming=true
+
+# ── Session ────────────────────────────────────────────────────
+# Transfers here are measured in gigabytes, so a daemon restart must resume
+# rather than start over. Pointing input-file and save-session at the same path
+# is what makes that work. aria2 refuses to start when input-file names a
+# missing file, which is why run_setup_aria2.sh creates it before enabling the
+# unit. Up to save-session-interval seconds of progress is lost on a hard kill.
+input-file={{ .chezmoi.homeDir }}/.local/state/aria2/session
+save-session={{ .chezmoi.homeDir }}/.local/state/aria2/session
+save-session-interval=60

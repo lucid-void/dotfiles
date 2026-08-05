@@ -9,6 +9,10 @@
   comma-separated list of directories:
       --load-extension=/path/one,/path/two
 
+  Only flags both browsers understand belong here. Anything ungoogled-chromium
+  adds by patch (--extension-mime-request-handling, for one) goes straight into
+  chromium.desktop.tmpl instead.
+
   --disable-features=ExtensionManifestV2Unsupported keeps MV2 extensions
   (AdNauseam is MV2) loadable on Chromium builds that have started phasing MV2 out.
 */ -}}

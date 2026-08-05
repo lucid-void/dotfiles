@@ -90,7 +90,7 @@ fi
 REQUIRED_CMDS=(curl git zsh tar)
 if [[ "$IS_DESKTOP" == true ]]; then
   REQUIRED_CMDS+=(fc-cache)   # fontconfig, for run_once_install_fonts.sh
-  REQUIRED_CMDS+=(unzip)      # for run_once_install_adnauseam.sh
+  REQUIRED_CMDS+=(unzip)      # for run_install_adnauseam.sh
 fi
 
 missing=()
@@ -420,64 +420,66 @@ if [[ "$SKIP_PACKAGES" != true ]] && command -v rustup >/dev/null 2>&1; then
   fi
 fi
 
-# ── Browser extensions (ExtensionInstallForcelist) ─────────────
-# Chromium has no CLI to install extensions, so the only declarative route is an
-# enterprise policy. Both browsers read a JSON file from a compiled-in path:
+# ── Browser extensions — retired enterprise policies ───────────
+# install.sh no longer installs browser extensions at all. Both browsers now get
+# packages/browser-extensions.txt through dots/run_install_browser_extensions.sh,
+# which downloads each CRX with curl and registers it locally under
+# <user-data-dir>/External Extensions/ — no root, and one mechanism instead of
+# two that failed in different ways.
 #
-#   ungoogled-chromium  /etc/chromium/policies/managed/
-#   brave-origin        /etc/brave/policies/managed/
+# Two policy files were written here before that, and both have to be actively
+# removed rather than merely stopped:
 #
-# (Both paths were confirmed as literals inside the shipped binaries — the Brave
-# build contains /etc/brave/policies *and* /etc/chromium/policies.)
+#   /etc/chromium/policies/managed/  ExtensionInstallForcelist (ungoogled-chromium)
+#   /etc/brave/policies/managed/     ExtensionSettings         (brave-origin)
 #
-# Root-only, desktop-only, and never fatal: a browser without its extensions is
-# not a reason to fail a dotfiles install.
+# Leaving either in place breaks the replacement. A policy entry outranks the
+# local registration in the pending-install queue, so the working install never
+# fires while it is there: "entered for update more than once. old location:
+# kExternalPolicyDownload  new location: kExternalPref". The chromium one was
+# doubly dead — that build's compiled-in store URL is domain substituted to a
+# host that does not resolve, so it never installed anything either.
+#
+# Only a file this script recognises as one it wrote is removed; an unrelated
+# policy that happens to live at the same path is left alone. Desktop-only, and
+# never fatal — cleanup that cannot run just means an extra `chezmoi apply` once
+# someone runs install.sh with privileges.
 if [[ "$IS_DESKTOP" == true ]]; then
-  EXT_LIST="$PKG_DIR/browser-extensions.txt"
+  RETIRED_POLICIES=(
+    /etc/chromium/policies/managed/extensions.json
+    /etc/brave/policies/managed/extensions.json
+  )
 
-  if [[ ! -f "$EXT_LIST" ]]; then
-    :   # no list, nothing to enforce
+  stale_found=false
+  for policy in "${RETIRED_POLICIES[@]}"; do
+    [[ -f "$policy" ]] || continue
+    grep -qE 'ExtensionInstallForcelist|ExtensionSettings' "$policy" 2>/dev/null || continue
+    stale_found=true
+  done
+
+  if ! $stale_found; then
+    :   # nothing left over
   elif ! $HAVE_ROOT; then
-    warn "no root or passwordless sudo — skipping browser extension policy"
-    warn "  (run install.sh again with privileges to apply $EXT_LIST)"
+    warn "no root or passwordless sudo — a retired extension policy is still in /etc"
+    warn "  it blocks the local-CRX install that replaced it; re-run install.sh"
+    warn "  with privileges, or remove it by hand:"
+    for policy in "${RETIRED_POLICIES[@]}"; do
+      [[ -f "$policy" ]] && warn "    sudo rm $policy"
+    done
   else
-    # Strip comments and blanks; keep only well-formed 32-char extension IDs so a
-    # typo can't produce a policy file the browser will reject wholesale.
-    # NB: strip spaces/tabs/CR but NOT newlines — `tr -d '[:space:]'` would fold
-    # the entire file onto one line and match nothing.
-    mapfile -t EXT_IDS < <(sed 's/#.*//' "$EXT_LIST" | tr -d ' \t\r' | grep -E '^[a-p]{32}$' || true)
-
-    if [[ ${#EXT_IDS[@]} -eq 0 ]]; then
-      warn "no valid extension IDs in $EXT_LIST — skipping policy"
-    else
-      # ExtensionInstallForcelist entries are "<id>;<update-url>". The update URL
-      # is the Chrome Web Store endpoint; without it some builds ignore the entry.
-      CRX_URL="https://clients2.google.com/service/update2/crx"
-      policy_json="{
-  \"ExtensionInstallForcelist\": ["
-      for i in "${!EXT_IDS[@]}"; do
-        sep=","; [[ $i -eq $(( ${#EXT_IDS[@]} - 1 )) ]] && sep=""
-        policy_json+="
-    \"${EXT_IDS[$i]};${CRX_URL}\"${sep}"
-      done
-      policy_json+="
-  ]
-}"
-
-      log "Applying ExtensionInstallForcelist (${#EXT_IDS[@]} extensions)"
-      for dir in /etc/chromium/policies/managed /etc/brave/policies/managed; do
-        if $SUDO mkdir -p "$dir" 2>/dev/null \
-           && printf '%s\n' "$policy_json" | $SUDO tee "$dir/extensions.json" >/dev/null; then
-          $SUDO chmod 644 "$dir/extensions.json" 2>/dev/null || true
-          log "  wrote $dir/extensions.json"
-        else
-          warn "  could not write $dir/extensions.json"
-        fi
-      done
-
-      warn "force-installed extensions cannot be disabled or removed from the"
-      warn "browser UI — edit $EXT_LIST and re-run to change the set."
-    fi
+    for policy in "${RETIRED_POLICIES[@]}"; do
+      [[ -f "$policy" ]] || continue
+      grep -qE 'ExtensionInstallForcelist|ExtensionSettings' "$policy" 2>/dev/null || continue
+      if $SUDO rm -f "$policy"; then
+        log "Removed retired extension policy $policy"
+        # rmdir, not rm -r: the managed/ and policies/ directories are only
+        # cleared when this script's file was the last thing in them.
+        $SUDO rmdir "$(dirname "$policy")" "$(dirname "$(dirname "$policy")")" 2>/dev/null || true
+      else
+        warn "could not remove $policy — it will block the local CRX install"
+      fi
+    done
+    log "  extensions are installed by run_install_browser_extensions.sh on apply"
   fi
 fi
 

@@ -98,7 +98,7 @@ Plain text, one package per line, `#` for comments. Live in [`packages/`](packag
 | [`packages/headless-aur.txt`](packages/headless-aur.txt) | every Arch machine, desktop included | AUR, via `paru` |
 | [`packages/desktop.txt`](packages/desktop.txt) | Arch desktop only | official repos, via `pacman` |
 | [`packages/desktop-aur.txt`](packages/desktop-aur.txt) | Arch desktop only | AUR, via `paru` |
-| [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store, via `ExtensionInstallForcelist` policy |
+| [`packages/browser-extensions.txt`](packages/browser-extensions.txt) | desktop only | Chrome Web Store, via enterprise policy |
 
 Desktop installs all four Arch lists; headless installs the two Arch `headless` lists. The `-aur` split exists because a handful of CLI tools (`claude-code`, `carapace-bin`, `pokeget`) have no official-repo package. That's an Arch packaging detail, not a platform restriction: `carapace` and `pokeget` are installed on the Debian/Ubuntu path too, as GitHub release binaries fetched by `install.sh`.
 
@@ -197,21 +197,32 @@ Each entry deliberately uses **the same filename as the system entry** — that 
 
 Those flags live in one place, [`dots/.chezmoitemplates/browser-extension-flags`](dots/.chezmoitemplates/browser-extension-flags), and both entries pull them in with `includeTemplate`. Add an extension there once and both browsers pick it up — they can't drift apart.
 
-### AdNauseam installs itself
+Only flags both browsers understand go in that template. `chromium.desktop` appends one more of its own, `--extension-mime-request-handling`, because that switch exists only in ungoogled-chromium — see [below](#installing-extensions-by-hand-on-ungoogled-chromium).
 
-[`dots/run_once_install_adnauseam.sh.tmpl`](dots/run_once_install_adnauseam.sh.tmpl) downloads the latest release and unpacks it to `~/.local/share/adnauseam` during `chezmoi apply` — so `bash install.sh` gets you a working browser with no manual step. Desktop only; on headless the script renders down to an immediate `exit 0`.
+### AdNauseam installs and updates itself
+
+[`dots/run_install_adnauseam.sh.tmpl`](dots/run_install_adnauseam.sh.tmpl) downloads the latest release and unpacks it to `~/.local/share/adnauseam` during `chezmoi apply` — so `bash install.sh` gets you a working browser with no manual step. Desktop only; on headless the script renders down to an immediate `exit 0`.
 
 The extension itself is **not** tracked in this repo — it's 20 MB of build output. It lives in `~/.local/share/adnauseam` and must stay there: Chromium reads that directory on every launch rather than copying it into the profile, so deleting it silently disables the extension.
 
 The download uses `releases/latest/download/adnauseam.chromium.zip`, an unversioned alias the project publishes next to its versioned assets. That always tracks the newest release without parsing the GitHub API.
 
-Every failure path — no network, no `unzip`, malformed archive — warns and exits 0 rather than failing the install, because a `run_once_` script that exits non-zero aborts the entire `chezmoi apply`. Chromium ignores a missing `--load-extension` directory, so a skipped install degrades quietly instead of breaking the browser.
+**Updates come for free with `chezmoi apply`.** This is a `run_` script rather than `run_once_`, so it fires on every apply — but it gates itself on the version instead of on chezmoi's script state:
 
-**To update AdNauseam later**, `run_once_` means exactly that — the script won't fire again on its own:
+1. Read the installed version out of `~/.local/share/adnauseam/manifest.json`.
+2. Follow the `releases/latest` redirect with a single HEAD request; the tag it lands on (`…/releases/tag/v3.28.8`) names the newest version. No GitHub API call, so no rate limit.
+3. Compare the two with `sort -V`. If what's installed is already at or ahead of upstream, exit without downloading anything.
+
+So an apply with no new release upstream costs one HEAD request and touches nothing on disk; an apply after a release prints `updating 3.28.7 -> 3.28.8` and swaps the directory. Re-running is always safe.
+
+Version comparison is numeric, not lexical — `sort -V` puts 3.28.8 after 3.9.0, which a string compare gets backwards.
+
+Every failure path — no network, no `unzip`, malformed archive — warns and exits 0 rather than failing the install, because a chezmoi script that exits non-zero aborts the entire `chezmoi apply`. Chromium ignores a missing `--load-extension` directory, so a skipped install degrades quietly instead of breaking the browser. If the version check itself can't reach GitHub, an existing install is left alone rather than clobbered by a blind download.
+
+To force a reinstall of the current version anyway (a corrupted directory, say), delete it and re-apply — no `chezmoi state` surgery needed:
 
 ```bash
 rm -rf ~/.local/share/adnauseam
-chezmoi state delete-bucket --bucket=scriptState
 chezmoi apply
 ```
 
@@ -219,26 +230,88 @@ chezmoi apply
 
 ### chromium-web-store re-enables the Web Store's install buttons
 
-ungoogled-chromium ships with Chrome Web Store integration stripped out, so its install/update buttons don't do anything by default. [`dots/run_once_install_chromium_web_store.sh.tmpl`](dots/run_once_install_chromium_web_store.sh.tmpl) installs [NeverDecaf/chromium-web-store](https://github.com/NeverDecaf/chromium-web-store) unpacked into `~/.local/share/chromium-web-store`, the same way as AdNauseam above, and it's added to the same shared `--load-extension` flag.
+ungoogled-chromium ships with Chrome Web Store integration stripped out, so its install/update buttons don't do anything by default. [`dots/run_install_chromium_web_store.sh.tmpl`](dots/run_install_chromium_web_store.sh.tmpl) installs [NeverDecaf/chromium-web-store](https://github.com/NeverDecaf/chromium-web-store) unpacked into `~/.local/share/chromium-web-store`, the same way as AdNauseam above, and it's added to the same shared `--load-extension` flag.
 
-Upstream documents installing this via an interactive step — flip `chrome://flags/#extension-mime-request-handling` to "Always prompt for install", then drag the released `.crx` onto the browser. Loading it unpacked skips that entirely: no flag flip, no manual drag, and it updates whenever the `run_once_` script re-fires the same way AdNauseam does (see below).
+Upstream documents installing this via an interactive step — flip `chrome://flags/#extension-mime-request-handling` to "Always prompt for install", then drag the released `.crx` onto the browser. Loading it unpacked skips that entirely: no manual drag. (The equivalent of that flag is set anyway, by the desktop entry rather than by hand — the extension's install buttons need it to do more than download. See [below](#installing-extensions-by-hand-on-ungoogled-chromium).)
+
+It self-updates exactly like AdNauseam: `run_` rather than `run_once_`, gated on the version rather than on chezmoi's script state. The `releases/latest` redirect lands on `…/releases/tag/v1.5.5.3` and the installed manifest reads `1.5.5.3`, so the same `sort -V` compare works unchanged — a steady-state apply costs one HEAD request and touches nothing. To force a reinstall of the current version, delete the directory and re-apply; no `chezmoi state` surgery needed:
+
+```bash
+rm -rf ~/.local/share/chromium-web-store
+chezmoi apply
+```
 
 A `.crx` is a small binary header glued in front of an ordinary zip. `unzip` finds the zip's central directory by scanning backward from EOF, so it extracts the extension fine — it just warns about the leading bytes and exits 1 even on success, so the script checks for `manifest.json` rather than the exit code.
 
-### Web store extensions — force-installed by policy
+### Installing extensions by hand on ungoogled-chromium
 
-Everything in [`packages/browser-extensions.txt`](packages/browser-extensions.txt) is installed via an `ExtensionInstallForcelist` enterprise policy. `install.sh` reads the list and writes the same JSON to both browsers' policy directories:
+The two unpacked extensions above arrive without any of this — `--load-extension` bypasses the whole extension-install path. Installing anything *else* on ungoogled-chromium, whether by dropping a `.crx` on `chrome://extensions` or by clicking chromium-web-store's install button, needs two settings that Chrome has on by default and ungoogled-chromium does not. Both are set for you:
 
+| Setting | Where it lives | Set by |
+| --- | --- | --- |
+| `chrome://flags/#extension-mime-request-handling` = "Always prompt for install" | command-line switch | `chromium.desktop` |
+| Developer mode on `chrome://extensions` | profile preference | [`dots/run_enable_chromium_developer_mode.sh.tmpl`](dots/run_enable_chromium_developer_mode.sh.tmpl) |
+
+**The flag** decides what happens when you navigate to a `.crx` URL: save it as a file (the default) or offer to install it. `--extension-mime-request-handling=always-prompt-for-install` on the `Exec=` line is exactly equivalent to flipping it in `chrome://flags`, which is why there's no manual flag flip in the setup. It's an ungoogled-chromium patch, not an upstream switch, so it lives in `chromium.desktop` rather than the shared flags template — Brave would just ignore it.
+
+**Developer mode** has no switch. It's `extensions.ui.developer_mode` in `~/.config/chromium/Default/Preferences`, and the `ExtensionDeveloperModeSettings` enterprise policy can only permit or block the toggle, never turn it on — so the script patches the preference with `jq`. Brave is left alone; its Web Store integration is intact and doesn't need it.
+
+That script runs on **every** apply, not `run_once_`, for one reason: Chromium keeps its preferences in memory and rewrites the file on exit, so patching them underneath a running browser accomplishes nothing. If Chromium is up, the script warns and skips — and a `run_once_` script that skipped would be marked done and never retried. Running every time means it keeps trying until Chromium is closed, and once the preference is set it exits without writing, so a steady-state apply touches nothing.
+
+On a machine where Chromium has never started there is no profile to patch, so the script writes a `Preferences` containing only that one key. Chromium reads it on first launch and fills its defaults in around it.
+
+To undo either: turn Developer mode off in the UI and it stays off until the next `chezmoi apply` — the script's job is to enable it, so remove the script if you want it gone for good.
+
+### Web store extensions — one list, one mechanism
+
+Everything in [`packages/browser-extensions.txt`](packages/browser-extensions.txt) gets installed on both browsers by [`dots/run_install_browser_extensions.sh.tmpl`](dots/run_install_browser_extensions.sh.tmpl): it downloads each CRX with `curl` and registers it locally through the browser's **External Extensions** directory. No root, no enterprise policy, one code path.
+
+| Browser | Registration directory |
+| --- | --- |
+| ungoogled-chromium | `~/.config/chromium/External Extensions/<id>.json` |
+| brave-origin | `~/.config/BraveSoftware/Brave-Origin/External Extensions/<id>.json` |
+
+Both land the extension at Chromium's **`external-pref`** location, which is the one the browser UI leaves under your control — you can disable *and* remove each extension from `chrome://extensions`.
+
+#### Why not the enterprise policy
+
+For ungoogled-chromium the policy route is a dead end, and not for the reason you'd guess. The policy is read and parsed correctly — verbose logs show `Found mandatory policy file: /etc/chromium/policies/managed/extensions.json` and every ID entering the pending-install queue as `kExternalPolicyDownload`. What's missing is the other end of the wire: ungoogled-chromium domain-substitutes its compiled-in URLs, so `clients2.google.com/service/update2/crx` doesn't appear in the binary at all — only `clients2.9oo91e.qjz9zk`, which doesn't resolve. The policy is honoured; the downloader behind it is severed. Putting the real URL in the policy doesn't help either, since `external_update_url` takes the same dead path.
+
+Brave's store path is intact, so an `ExtensionSettings` policy written to `/etc/brave/policies/managed/extensions.json` did work there, and `install.sh` wrote one for a while. It's retired: it needed root, it could seed a profile but never prune it, and it meant one list installed by two unrelated mechanisms that failed in different ways. `install.sh` now **deletes** both retired policy files instead of writing either.
+
+> ⚠️ Removal is not optional. A policy naming these IDs outranks the local registration in the pending-install queue, so the working install never fires while it's there — `entered for update more than once. old location: kExternalPolicyDownload  new location: kExternalPref`. `install.sh` only removes a file it recognises as one it wrote, so an unrelated policy at the same path is left alone.
+
+#### How the local install works
+
+The store endpoint is only unreachable *from inside* ungoogled-chromium. `curl` fetches a valid signed CRX3 from it without trouble, and the External Extensions mechanism installs a CRX that's already on disk with no network at all — the same mechanism KDE's `plasma-browser-integration` uses via `/usr/share/chromium/extensions/`. So the script does the download itself and drops a JSON file per extension, per browser:
+
+```json
+{
+  "external_crx": "/home/you/.local/share/chromium-extensions/<id>-<store-version>.crx",
+  "external_version": "5.5.0"
+}
 ```
-/etc/chromium/policies/managed/extensions.json   # ungoogled-chromium
-/etc/brave/policies/managed/extensions.json      # brave-origin
+
+The browser unpacks it into the profile at launch, no interaction. Verified end to end: `location: 2` (`EXTERNAL_PREF`), `disable_reasons: []` — disableable and removable. **Deleting a JSON uninstalls its extension on the next launch**, which is what makes the directory a genuine mirror of the list rather than a one-way install. Drop an ID from `browser-extensions.txt`, re-apply, and the script removes the JSON from both browsers along with the cached CRX.
+
+`external_version` has to match the CRX's manifest exactly or the browser rejects the registration — note that the store's own filename pads it (`…_5_5_0_0.crx` for a manifest that says `5.5.0`), so the script reads the manifest rather than trusting the filename.
+
+The "is there a newer build?" probe is one request for the whole list. The store's `response=updatecheck` mode takes an `x=` parameter per extension and answers with Omaha update2 XML — an `<app>` per ID carrying `version` (the manifest version, unpadded) and a `codebase` blob URL:
+
+```xml
+<app appid="dhdgffkkebhmkfjojejmpbldmpobfkfo" status="ok">
+  <updatecheck codebase="https://…/DHDGFF…_5_5_0_0.crx" status="ok" version="5.5.0"/></app>
 ```
 
-Both paths are compiled into the shipped binaries, not guesses. The browsers pick the policy up on next launch and install the extensions from the Chrome Web Store.
+Downloads then go straight to `codebase`, so the build that is fetched is the same one the version check passed judgement on. IDs are batched 32 per request (64 in one ~3 KB URL is fine against the live endpoint; the cap just keeps the URL bounded as the list grows). A probe that fails leaves every version unknown, which re-downloads everything through the old per-ID redirect URL — slower, never wrong.
 
-This is desktop-only, needs root or passwordless sudo, and is never fatal — without privileges `install.sh` warns and moves on. Malformed IDs are filtered out before the file is written, so one typo can't produce a policy the browser rejects wholesale.
+The store also picks *which* build to serve from the `prodversion` it's asked about. With two browsers sharing one CRX the script asks on behalf of the older of the two — a build that installs on the older one installs on the newer, never the reverse.
 
-> **Two caveats.** Force-installed extensions **cannot be disabled or removed from the browser UI** — the only way to drop one is to delete it from the list and re-run. And ungoogled-chromium ships with web store integration stripped, so whether it actually fetches the CRXs depends on the build; the policy is written for it either way. Brave is unaffected.
+Like the AdNauseam script this is `run_`, not `run_once_` — a steady-state apply costs that single request (~0.1s) and touches nothing, while a new upstream build is picked up automatically. Bumping `external_version` is also what triggers the upgrade of an already-installed copy, so these genuinely stay current.
+
+The CRXs are cached once in `~/.local/share/chromium-extensions/` (~30 MB for the current list) and shared by both browsers, because a fresh profile needs them to install from. Only the current version of each is retained. Install a second browser later and the next apply registers the cached CRXs with it without re-downloading anything.
+
+This is desktop-only and never fatal: a failed download warns and is retried on the next apply, and malformed IDs are filtered out before anything is written.
 
 ---
 

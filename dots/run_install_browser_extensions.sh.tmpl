@@ -1,0 +1,353 @@
+#!/usr/bin/env bash
+# Installs packages/browser-extensions.txt into every Chromium-family browser on
+# the machine as local CRXs registered through the "External Extensions"
+# mechanism. Currently ungoogled-chromium and brave-origin.
+#
+# ── Why not the enterprise policy ──────────────────────────────
+# ungoogled-chromium applies domain substitution to its compiled-in URLs. The
+# policy names are all still in the binary (ExtensionInstallForcelist,
+# ExtensionSettings) and the file *is* read — verbose logs show "Found mandatory
+# policy file: /etc/chromium/policies/managed/extensions.json" and every ID
+# entering the pending queue as kExternalPolicyDownload. What is missing is the
+# other end: clients2.google.com/service/update2/crx does not appear in the
+# binary at all, only clients2.9oo91e.qjz9zk, which does not resolve. The policy
+# is honoured; the downloader behind it is severed. Putting the real URL in the
+# policy string doesn't help — external_update_url takes the same dead path.
+#
+# Brave's store path is intact, so a policy did work there, and install.sh used
+# to write one to /etc/brave/policies/managed/extensions.json. It is retired all
+# the same: it needed root, it only ever seeded a profile it could not later
+# prune, and it meant one list installed by two unrelated mechanisms that failed
+# in different ways. This script covers both browsers with neither problem.
+#
+# ⚠️ The policy and this script must not both name the same IDs. Pending-install
+# priority keeps the policy entry and the local install never fires: "entered
+# for update more than once. old location: kExternalPolicyDownload  new
+# location: kExternalPref". install.sh deletes both retired policy files.
+#
+# ── What does work ─────────────────────────────────────────────
+# external_crx: a CRX already on disk, registered by a JSON file dropped into
+# <user-data-dir>/External Extensions/. The browser unpacks it into the profile
+# at launch, no interaction, no network. It is the same mechanism KDE's
+# plasma-browser-integration package uses via /usr/share/chromium/extensions/.
+# The store endpoint is only unreachable *from inside* ungoogled-chromium — curl
+# fetches a valid signed CRX3 from it perfectly well, which is what this script
+# does.
+#
+# The payoff over the forcelist is the install location: EXTERNAL_PREF instead
+# of EXTERNAL_POLICY_DOWNLOAD, so chrome://extensions lets you disable *and*
+# remove each one. That is the entire point of doing it this way. Deleting a
+# JSON here uninstalls its extension on the next launch, so the directory is a
+# genuine declarative mirror of the list — add, remove, re-apply.
+#
+# Like run_install_adnauseam.sh this is a `run_` script, not `run_once_`: it
+# fires on every apply and gates itself on the store's current version, so the
+# extensions actually receive updates instead of being pinned to whatever was
+# current on the day they were first installed. An apply with nothing new costs
+# a single request for the whole list and touches nothing on disk.
+{{ if not .isDesktop }}
+# Headless machine: no browser to install into.
+exit 0
+{{ end }}
+# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
+# whole `chezmoi apply`, and browser extensions are not worth failing a dotfiles
+# install over. Every failure path below warns and carries on.
+set -uo pipefail
+
+# The extension list lives outside the chezmoi source directory, so it is
+# embedded here at apply time rather than read at run time. `.chezmoiroot` pins
+# the source directory to <repo>/dots, which makes ../packages deterministic.
+# Embedding also means the rendered script changes whenever the list changes,
+# which is what lets chezmoi notice an edit at all.
+{{- $extList := joinPath .chezmoi.sourceDir ".." "packages" "browser-extensions.txt" }}
+EXT_LIST_RAW="$(cat <<'DOTFILES_EXTENSION_LIST'
+{{ if stat $extList }}{{ include $extList }}{{ end }}
+DOTFILES_EXTENSION_LIST
+)"
+
+# One CRX cache for every browser: the file is Chromium-family and is only ever
+# referenced by absolute path from each browser's own JSON, so two browsers on
+# the same list share one download rather than each keeping their own ~30 MB.
+# The directory keeps its original chromium-specific name — renaming it would
+# invalidate the external_crx paths in every JSON already on disk and force a
+# full re-download for no gain.
+CRX_DIR="$HOME/.local/share/chromium-extensions"
+STATE="$CRX_DIR/.managed-ids"
+STORE="https://clients2.google.com/service/update2/crx"
+
+warn() { printf 'browser-extensions: %s\n' "$*" >&2; }
+
+# ── Browsers ───────────────────────────────────────────────────
+# "<command>|<user-data-dir>". The External Extensions directory is always
+# <user-data-dir>/External Extensions — Chromium's DIR_USER_EXTERNAL_EXTENSIONS.
+# Both paths below were read out of the shipped binaries rather than guessed:
+# brave-origin embeds the literal "BraveSoftware/Brave-Origin".
+BROWSERS=(
+  "chromium|$HOME/.config/chromium"
+  "brave-origin|$HOME/.config/BraveSoftware/Brave-Origin"
+)
+
+# Only browsers actually installed get a registration directory. A machine with
+# neither has nothing to install into, so skip rather than downloading 30 MB of
+# CRXs nobody will load.
+NAMES=() EXT_DIRS=()
+for entry in "${BROWSERS[@]}"; do
+  cmd="${entry%%|*}"
+  command -v "$cmd" >/dev/null 2>&1 || continue
+  NAMES+=("$cmd")
+  EXT_DIRS+=("${entry#*|}/External Extensions")
+done
+
+if [[ ${#NAMES[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+for cmd in curl unzip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    warn "$cmd not found — skipping"
+    exit 0
+  fi
+done
+
+# Same parse as install.sh: strip comments, keep only well-formed 32-char IDs so
+# a typo produces one skipped extension rather than a broken JSON file.
+# NB: strip spaces/tabs/CR but NOT newlines — `tr -d '[:space:]'` would fold the
+# whole list onto one line and match nothing.
+mapfile -t EXT_IDS < <(printf '%s\n' "$EXT_LIST_RAW" | sed 's/#.*//' | tr -d ' \t\r' | grep -E '^[a-p]{32}$' || true)
+
+if [[ ${#EXT_IDS[@]} -eq 0 ]]; then
+  warn "no valid extension IDs in the list — nothing to do"
+  exit 0
+fi
+
+# The store picks which build of an extension to serve based on the browser
+# version it is asked about. With two browsers to satisfy from one CRX, ask on
+# behalf of the *oldest* of them — a build that installs on the older one
+# installs on the newer, never the reverse. Fall back to a recent-enough number
+# if a version string ever changes shape (`Chromium 150.0.7871.186 Arch Linux`).
+PRODVERSION=""
+for cmd in "${NAMES[@]}"; do
+  v="$("$cmd" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  [[ -n "$v" ]] || continue
+  if [[ -z "$PRODVERSION" ]] \
+     || [[ "$(printf '%s\n%s\n' "$v" "$PRODVERSION" | sort -V | head -1)" == "$v" ]]; then
+    PRODVERSION="$v"
+  fi
+done
+[[ -n "$PRODVERSION" ]] || PRODVERSION="140.0"
+
+mkdir -p "$CRX_DIR" 2>/dev/null || {
+  warn "could not create $CRX_DIR — skipping"
+  exit 0
+}
+for dir in "${EXT_DIRS[@]}"; do
+  mkdir -p "$dir" 2>/dev/null || {
+    warn "could not create $dir — skipping"
+    exit 0
+  }
+done
+
+# Reads the "version" field out of a CRX's manifest, empty if unreadable.
+# A .crx is a small binary header glued in front of an ordinary zip, so unzip
+# extracts it fine but exits 1 even on success, complaining about the leading
+# bytes — hence checking the output rather than the exit code.
+crx_version() {
+  unzip -p "$1" manifest.json 2>/dev/null \
+    | tr -d '\n' \
+    | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1
+}
+
+# Registers one CRX with every installed browser that is missing it, and reports
+# how many registrations it wrote. external_version must match the manifest
+# exactly or the browser refuses the registration. Bumping it is also what
+# triggers an upgrade of an already installed copy — which is why this script
+# can update extensions at all.
+#
+# The comparison is against the file the browser would read, so a browser
+# installed after the CRX was first cached picks it up on the next apply without
+# re-downloading anything.
+register() {
+  local id="$1" crx="$2" mver="$3" i json want wrote=0
+  want="{
+  \"external_crx\": \"$crx\",
+  \"external_version\": \"$mver\"
+}"
+  for i in "${!EXT_DIRS[@]}"; do
+    json="${EXT_DIRS[$i]}/$id.json"
+    [[ -f "$json" && "$(cat "$json")" == "$want" ]] && continue
+    printf '%s\n' "$want" > "$json" || { warn "$id: could not write $json"; continue; }
+    wrote=$((wrote + 1))
+  done
+  printf '%s' "$wrote"
+}
+
+# ── Version probe ──────────────────────────────────────────────
+# `response=updatecheck` asks the store what it would serve without serving it,
+# and it takes one `x=` per extension in the same request, so the whole list is
+# one round trip rather than one per ID. The reply is Omaha's update2 XML, an
+# <app> per ID carrying the version and a direct blob URL:
+#
+#   <app appid="dhdgff…" status="ok">
+#     <updatecheck codebase="https://…/DHDGFF…_5_5_0_0.crx"
+#                  status="ok" version="5.5.0"/></app>
+#
+# Note the version attribute is the *manifest* version (5.5.0) even though the
+# filename in codebase pads it to four components (5_5_0_0) — the padded form
+# never appears here, which is one fewer trap than the old redirect-name probe.
+# An unknown ID comes back as <app appid="…" status="error-unknownApplication">
+# with no <updatecheck> child, so it simply contributes nothing to the maps.
+#
+# Verified against the live endpoint with 64 IDs in one request (a ~3 KB URL),
+# but chunking keeps the URL bounded no matter how long the list grows.
+declare -A STORE_VER STORE_URL
+CHUNK=32
+
+probe_chunk() {
+  local xml app id ver url
+  xml="$(curl -fsSL --connect-timeout 10 --max-time 30 -G \
+    --data-urlencode 'response=updatecheck' \
+    --data-urlencode 'acceptformat=crx2,crx3' \
+    --data-urlencode "prodversion=${PRODVERSION}" \
+    "$@" "$STORE" 2>/dev/null)" || return 0
+
+  # The reply is a single line. Break it so each <app> stands alone, which lets
+  # a per-line match associate an appid with its own updatecheck attributes
+  # instead of the greedy `.*` reaching into the next extension's element.
+  # The trailing newline sed is fed is load-bearing: `read` returns non-zero on
+  # a final line that lacks one, which silently drops the last <app> of every
+  # chunk — visible as one extension re-downloading on every single apply.
+  while IFS= read -r app; do
+    [[ "$app" == *"<updatecheck"* ]] || continue
+    id="$(printf '%s' "$app" | sed -n 's/^<app [^>]*appid="\([a-p]\{32\}\)".*/\1/p')"
+    [[ -n "$id" ]] || continue
+    ver="$(printf '%s' "$app" | sed -n 's/.*<updatecheck[^>]* version="\([^"]*\)".*/\1/p')"
+    url="$(printf '%s' "$app" | sed -n 's/.*<updatecheck[^>]* codebase="\([^"]*\)".*/\1/p')"
+    # Anything that isn't a dotted number means the schema moved; record nothing
+    # rather than inventing a version, and that extension re-downloads.
+    [[ "$ver" =~ ^[0-9]+(\.[0-9]+)*$ ]] && STORE_VER["$id"]="$ver"
+    [[ "$url" == https://* ]] && STORE_URL["$id"]="$url"
+  done < <(printf '%s\n' "$xml" | sed 's/<app /\n<app /g')
+}
+
+# A probe that fails outright leaves both maps empty, which reads downstream as
+# "version unknown" — every extension re-downloads, exactly as it did when a
+# single HEAD failed. Slower, never wrong.
+for ((i = 0; i < ${#EXT_IDS[@]}; i += CHUNK)); do
+  probe_args=()
+  for id in "${EXT_IDS[@]:i:CHUNK}"; do
+    probe_args+=(--data-urlencode "x=id=${id}&uc")
+  done
+  probe_chunk "${probe_args[@]}"
+done
+
+installed=0 updated=0 failed=0
+
+for id in "${EXT_IDS[@]}"; do
+  sver="${STORE_VER[$id]:-}"
+
+  # Cached: the CRX for exactly this store version is already on disk, so there
+  # is nothing to fetch. Registration is still checked — that is what picks up a
+  # browser installed since the last apply — but in the steady state `register`
+  # finds every JSON already correct and writes nothing.
+  #
+  # The version in that filename used to come from the store's padded redirect
+  # name (5.5.0.0) and now comes from the updatecheck reply (5.5.0), so the
+  # first apply after that switch misses on every extension and re-downloads
+  # once. The prune below clears the old names; it does not recur.
+  if [[ -n "$sver" && -f "$CRX_DIR/$id-$sver.crx" ]]; then
+    mver="$(crx_version "$CRX_DIR/$id-$sver.crx")"
+    if [[ -n "$mver" ]]; then
+      [[ "$(register "$id" "$CRX_DIR/$id-$sver.crx" "$mver")" != 0 ]] && installed=$((installed + 1))
+      continue
+    fi
+    # Unreadable manifest means a truncated or corrupt cache entry; fall through
+    # and download it again rather than registering a version we cannot confirm.
+    warn "$id: cached CRX unreadable — re-downloading"
+  fi
+
+  tmp="$(mktemp -d)" || { warn "$id: no temp dir — skipping"; failed=$((failed + 1)); continue; }
+
+  # Prefer the blob URL the probe already resolved: it is the exact build the
+  # version check passed judgement on, so there is no window in which the store
+  # rotates to a newer one between probe and fetch. Without it (probe failed, or
+  # the reply had no codebase) fall back to asking the store to redirect us.
+  src="${STORE_URL[$id]:-}"
+  [[ -n "$src" ]] || src="${STORE}?response=redirect&acceptformat=crx2,crx3&prodversion=${PRODVERSION}&x=id%3D${id}%26uc"
+
+  if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$tmp/ext.crx" "$src"; then
+    warn "$id: download failed — keeping whatever is already installed"
+    rm -rf "$tmp"; failed=$((failed + 1)); continue
+  fi
+
+  # A CRX3 starts with the magic "Cr24". Catches an error page served with a
+  # 200, which would otherwise be registered as an extension and fail silently
+  # inside the browser instead of here.
+  if [[ "$(head -c 4 "$tmp/ext.crx")" != "Cr24" ]]; then
+    warn "$id: downloaded file is not a CRX — skipping"
+    rm -rf "$tmp"; failed=$((failed + 1)); continue
+  fi
+
+  mver="$(crx_version "$tmp/ext.crx")"
+  if [[ -z "$mver" ]]; then
+    warn "$id: no version in manifest — skipping"
+    rm -rf "$tmp"; failed=$((failed + 1)); continue
+  fi
+
+  # "Update" rather than "install" if any browser already had this extension
+  # registered before this apply.
+  had_json=false
+  for dir in "${EXT_DIRS[@]}"; do
+    [[ -f "$dir/$id.json" ]] && { had_json=true; break; }
+  done
+
+  crx="$CRX_DIR/$id-${sver:-$mver}.crx"
+
+  if ! mv "$tmp/ext.crx" "$crx"; then
+    warn "$id: could not store CRX — skipping"
+    rm -rf "$tmp"; failed=$((failed + 1)); continue
+  fi
+  rm -rf "$tmp"
+
+  # Drop older cached builds of this extension. The CRX has to stay on disk for
+  # first install on a fresh profile, but only the current one is ever used.
+  for old in "$CRX_DIR/$id-"*.crx; do
+    [[ -f "$old" && "$old" != "$crx" ]] && rm -f "$old"
+  done
+
+  register "$id" "$crx" "$mver" >/dev/null
+
+  if $had_json; then
+    printf 'browser-extensions: updated %s -> %s\n' "$id" "$mver"
+    updated=$((updated + 1))
+  else
+    installed=$((installed + 1))
+  fi
+done
+
+# ── Prune ──────────────────────────────────────────────────────
+# Deleting the JSON is what uninstalls an extension, so an ID dropped from the
+# list has to have its file removed here, from every browser. Only IDs this
+# script previously wrote are touched: the state file keeps it from deleting a
+# JSON that something else (a package, or you by hand) put in the same directory.
+if [[ -f "$STATE" ]]; then
+  while read -r old_id; do
+    [[ "$old_id" =~ ^[a-p]{32}$ ]] || continue
+    for keep in "${EXT_IDS[@]}"; do
+      [[ "$keep" == "$old_id" ]] && continue 2
+    done
+    for dir in "${EXT_DIRS[@]}"; do
+      rm -f "$dir/$old_id.json"
+    done
+    rm -f "$CRX_DIR/$old_id-"*.crx
+    printf 'browser-extensions: removed %s (dropped from the list)\n' "$old_id"
+  done < "$STATE"
+fi
+printf '%s\n' "${EXT_IDS[@]}" > "$STATE"
+
+if [[ $installed -gt 0 || $updated -gt 0 ]]; then
+  printf 'browser-extensions: %d installed, %d updated across %s — restart to load them\n' \
+    "$installed" "$updated" "$(IFS=,; printf '%s' "${NAMES[*]}")"
+fi
+[[ $failed -gt 0 ]] && warn "$failed extension(s) could not be fetched — they will be retried on the next apply"
+exit 0

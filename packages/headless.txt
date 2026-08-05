@@ -40,8 +40,10 @@ man-pages
 neovim
 
 # ── Git ────────────────────────────────────────────────────────
-# git-delta is .gitconfig's `core.pager`. Without it git cannot page at all,
-# so this is a hard dependency of dot_gitconfig, not an optional nicety.
+# git-delta is .gitconfig's `core.pager`. That entry probes for it at runtime
+# and falls back to `less`, so a failed install costs syntax highlighting
+# rather than breaking `git diff` outright — still wanted everywhere, just no
+# longer load-bearing.
 git-delta
 github-cli
 lazygit

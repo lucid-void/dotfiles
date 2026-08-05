@@ -10,28 +10,37 @@
 # access), which is the point of this list: one inventory, both browsers.
 #
 # ── How these get installed ────────────────────────────────────
-# Chromium has no `--install-extension` CLI, so install.sh turns this list into
-# an ExtensionInstallForcelist enterprise policy and writes it to both:
+# Chromium has no `--install-extension` CLI, so dots/run_install_browser_extensions.sh
+# downloads each CRX with curl and registers it locally through the browser's
+# External Extensions directory:
 #
-#   /etc/chromium/policies/managed/extensions.json   (ungoogled-chromium)
-#   /etc/brave/policies/managed/extensions.json      (brave-origin)
+#   ungoogled-chromium  ~/.config/chromium/External Extensions/<id>.json
+#   brave-origin        ~/.config/BraveSoftware/Brave-Origin/External Extensions/<id>.json
 #
-# Both paths are compiled into the shipped binaries — verified by grepping them.
-# Each browser installs the listed extensions from the Chrome Web Store on next
-# launch. Edit this file and re-run install.sh to change the set.
+# One script, one mechanism, both browsers, no root. It runs on every
+# `chezmoi apply`, asks the store once for the whole list, and re-downloads only
+# what has a newer build. The CRXs are cached in ~/.local/share/chromium-extensions
+# and shared between the two browsers.
 #
-# ⚠️ Force-installed extensions CANNOT be disabled or removed from the browser
-#    UI. Removing one means deleting it here and re-running install.sh.
+# ungoogled-chromium leaves no choice here: it reads and parses an enterprise
+# policy fine, but its compiled-in store URL is domain substituted to a host that
+# does not resolve, so nothing behind the policy ever downloads. Brave could have
+# kept a policy, and did for a while — retiring it means one list installed one
+# way rather than two mechanisms failing differently. The script's header comment
+# has the full findings.
 #
-# ⚠️ ungoogled-chromium ships with web store integration stripped out. The policy
-#    is written for it regardless, but whether it actually fetches the CRXs
-#    depends on the build — verify rather than assume. Brave is unaffected.
+# ⚠️ Neither browser may ALSO have a policy naming these IDs — the policy entry
+#    outranks the local install and blocks it. install.sh removes both retired
+#    policy files (/etc/chromium/... and /etc/brave/policies/managed/extensions.json)
+#    if it finds them.
 #
-# The step is desktop-only and needs root (or passwordless sudo); without
-# privileges install.sh warns and skips rather than failing.
+# Edit this file and `chezmoi apply` to change the set. Removing an ID uninstalls
+# it from both browsers on next launch — the External Extensions directory is a
+# genuine mirror of this list, not a one-way install.
 
 #hmbnhhcgiecenbbkgdoaoafjpeaboine  # Ad & Intro Skip for YT, Netflix
 cmedhionkhpnakcndndgjdbohmhepckk  # Adblock for Youtube™
+mpkodccbngfoacfalldjimigbofkhgjn  # Aria2 Explorer
 nngceckbapebfimnlniiiahkandclblb  # Bitwarden Password Manager
 #kclpjmhngbacampgcdojmiedamjbgjjm  # Connective signing extension
 ponfpcnoihfmfllpaingbgckeeldkhle  # Enhancer for YouTube™
@@ -47,8 +56,14 @@ mnjggcdmjocbbbhaepdhchncahnbgone  # SponsorBlock for YouTube - Skip Sponsorships
 dhdgffkkebhmkfjojejmpbldmpobfkfo  # Tampermonkey
 fmkancpjcacjodknfjcpmgkccbhedkhc  # Tweeks - Customize Any Website
 
+# ⚠️ Aria2 Explorer is the one entry here that is inert on its own. It captures
+#    a download and POSTs it to aria2's JSON-RPC on 127.0.0.1:6800, so it needs
+#    the daemon from dots/run_setup_aria2.sh.tmpl running and the generated RPC
+#    secret pasted into its options page. Without both it silently falls back to
+#    letting the browser download normally — the failure is quiet, not loud.
+#
 # AdNauseam is deliberately NOT in this list. It is installed unpacked by
-# dots/run_once_install_adnauseam.sh.tmpl and loaded via --load-extension, so it
+# dots/run_install_adnauseam.sh.tmpl and loaded via --load-extension, so it
 # never appears in the profile's Extensions directory.
 #
 # ⚠️ AdNauseam is a fork of uBlock Origin and reuses its filtering engine.

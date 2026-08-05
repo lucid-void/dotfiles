@@ -33,6 +33,14 @@ desktop-file-utils
 # Wayland clipboard bridge for nvim and tmux. Swap for xclip on X11.
 wl-clipboard
 
+# ── Downloads ──────────────────────────────────────────────────
+# Here for the browser, not for the CLI, which is why it is desktop-only:
+# Chromium-family browsers download on exactly one TCP connection and expose no
+# setting to change it. The Aria2 Explorer extension in browser-extensions.txt
+# cancels Brave's download and re-issues it to the aria2 daemon over JSON-RPC.
+# dots/run_setup_aria2.sh.tmpl owns the daemon; it no-ops until this is installed.
+aria2
+
 # ── Chat ───────────────────────────────────────────────────────
 signal-desktop
 telegram-desktop

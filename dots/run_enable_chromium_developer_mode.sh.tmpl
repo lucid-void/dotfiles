@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Turns on Developer mode (chrome://extensions) for ungoogled-chromium.
+#
+# Developer mode is a per-profile preference — extensions.ui.developer_mode in
+# ~/.config/chromium/Default/Preferences. There is no command-line switch for
+# it, and the ExtensionDeveloperModeSettings enterprise policy only allows or
+# blocks the toggle rather than forcing it on, so seeding the pref is the only
+# way to have it set on a fresh machine without clicking through the UI.
+#
+# It matters because ungoogled-chromium's extension workflow is gated behind
+# it: dropping a .crx onto chrome://extensions — how chromium-web-store
+# installs anything — and "Load unpacked" both require the toggle. Extensions
+# passed via --load-extension from the desktop entry do not, which is why
+# AdNauseam and chromium-web-store load fine without it.
+#
+# Brave is deliberately left alone: its Web Store integration is intact, so
+# nothing there needs developer mode.
+#
+# This is a `run_` script, not `run_once_`: it can't do its work while the
+# browser is open (see below), and a `run_once_` script that skipped would be
+# recorded as done and never retried. Running on every `chezmoi apply` instead
+# means it keeps trying until it succeeds, and it exits without writing once
+# the pref is already set — so a steady-state apply touches nothing.
+{{ if not .isDesktop }}
+# Headless machine: no browser profile to configure.
+exit 0
+{{ end }}
+# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
+# whole `chezmoi apply`, and a browser preference is not worth failing a
+# dotfiles install over. Every failure path below warns and exits 0.
+set -uo pipefail
+
+PROFILE="$HOME/.config/chromium/Default"
+PREFS="$PROFILE/Preferences"
+
+warn() { printf 'chromium-devmode: %s\n' "$*" >&2; }
+
+if ! command -v jq >/dev/null 2>&1; then
+  warn "jq not found — skipping (enable Developer mode by hand on chrome://extensions)"
+  exit 0
+fi
+
+# Chromium holds the whole preference store in memory and rewrites Preferences
+# when it exits, so a patch applied underneath a running browser is silently
+# discarded on quit. Skip; the next apply picks it up.
+if pgrep -x chromium >/dev/null 2>&1; then
+  warn "chromium is running — skipping (re-run \`chezmoi apply\` once it's closed)"
+  exit 0
+fi
+
+# Fresh machine: chromium has never started, so there is no profile yet. A
+# Preferences file holding nothing but this one key is enough — chromium reads
+# it on first launch and fills in its defaults around it rather than
+# overwriting the file.
+if [[ ! -f "$PREFS" ]]; then
+  if ! mkdir -p "$PROFILE"; then
+    warn "could not create $PROFILE — skipping"
+    exit 0
+  fi
+  printf '%s\n' '{"extensions":{"ui":{"developer_mode":true}}}' > "$PREFS" || {
+    warn "could not write $PREFS — skipping"
+    exit 0
+  }
+  printf 'chromium-devmode: seeded Developer mode into a new profile\n'
+  exit 0
+fi
+
+# `// false` covers both a missing key (never toggled) and a null. Only the
+# string "true" means the work is already done.
+if [[ "$(jq -r '.extensions.ui.developer_mode // false' "$PREFS" 2>/dev/null)" == "true" ]]; then
+  exit 0
+fi
+
+# Write to a temp file and swap, so an interrupted or failed jq run can never
+# leave a truncated Preferences behind — chromium resets a profile whose
+# Preferences it cannot parse. `-c` keeps the file compact, which is the shape
+# chromium writes it in anyway.
+tmp="$(mktemp "$PREFS.XXXXXX")" || { warn "could not create temp file — skipping"; exit 0; }
+trap 'rm -f "$tmp"' EXIT
+
+if ! jq -c '.extensions.ui.developer_mode = true' "$PREFS" > "$tmp" 2>/dev/null || [[ ! -s "$tmp" ]]; then
+  warn "could not patch $PREFS — leaving it untouched"
+  exit 0
+fi
+
+if ! mv "$tmp" "$PREFS"; then
+  warn "could not replace $PREFS — leaving it untouched"
+  exit 0
+fi
+
+printf 'chromium-devmode: enabled Developer mode on chrome://extensions\n'

@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Installs and updates the chromium-web-store extension (NeverDecaf) as an
+# unpacked extension into ~/.local/share/chromium-web-store.
+#
+# ungoogled-chromium ships with Chrome Web Store integration stripped, so the
+# store's install/update buttons don't do anything by default. This extension
+# patches them back to working. Upstream's documented install method is
+# interactive (flip chrome://flags/#extension-mime-request-handling, then
+# drag the .crx onto the browser); loading it unpacked via --load-extension
+# instead needs no interactive step, mirroring how AdNauseam is installed
+# below.
+#
+# Both browser desktop entries pass the resulting directory via
+# --load-extension in the shared dots/.chezmoitemplates/browser-extension-flags
+# template, so the directory has to exist and stay put — Chromium reads it on
+# every launch, it is not copied into the browser profile.
+#
+# This is a `run_` script, not `run_once_`: it fires on every `chezmoi apply` so
+# the extension can pick up new upstream releases. It gates itself on the
+# version instead — comparing the installed manifest against the latest release
+# tag and downloading nothing when the installed copy is already current. An
+# apply with no new release upstream costs one HEAD request and touches nothing
+# on disk.
+{{ if not .isDesktop }}
+# Headless machine: no browser to load the extension into.
+exit 0
+{{ end }}
+# Deliberately not `set -e`. A chezmoi script that exits non-zero aborts the
+# whole `chezmoi apply`, and a browser extension is not worth failing a dotfiles
+# install over. Every failure path below warns and exits 0; Chromium ignores a
+# missing --load-extension directory, so skipping degrades quietly.
+set -uo pipefail
+
+DEST="$HOME/.local/share/chromium-web-store"
+RELEASE="https://github.com/NeverDecaf/chromium-web-store/releases/latest"
+URL="$RELEASE/download/Chromium.Web.Store.crx"
+
+warn() { printf 'chromium-web-store: %s\n' "$*" >&2; }
+
+# Reads the "version" field out of an extension manifest, empty if absent.
+# Upstream tags releases as vX.Y.Z.W and ships the same X.Y.Z.W in
+# manifest.json, so the two are directly comparable once the tag's leading `v`
+# is stripped.
+manifest_version() {
+  [[ -f "$1" ]] || return 0
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
+}
+
+for cmd in curl unzip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    warn "$cmd not found — skipping install (Chromium tolerates the missing dir)"
+    exit 0
+  fi
+done
+
+installed="$(manifest_version "$DEST/manifest.json")"
+
+# `releases/latest` redirects to the newest tag's page, so the effective URL
+# after following it names the version. That is one unauthenticated HEAD request
+# against an ordinary web page — no GitHub API call, so no rate limit to trip
+# over on a machine that applies often.
+latest=""
+if effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+      --connect-timeout 10 --max-time 30 "$RELEASE" 2>/dev/null)"; then
+  # …/releases/tag/v1.5.5.3 -> 1.5.5.3. Anything else means upstream changed the
+  # URL shape; leave `latest` empty rather than guessing at a version.
+  if [[ "$effective" == */releases/tag/* ]]; then
+    latest="${effective##*/releases/tag/}"
+    latest="${latest#v}"
+  fi
+fi
+
+if [[ -z "$latest" ]]; then
+  # Offline, or the redirect no longer points at a tag. An existing install
+  # keeps working, so leave it alone rather than clobbering it blindly.
+  if [[ -n "$installed" ]]; then
+    warn "could not determine latest version — keeping installed $installed"
+    exit 0
+  fi
+  warn "could not determine latest version — attempting install anyway"
+fi
+
+# Skip when the installed copy is already at or ahead of the latest release.
+# `sort -V` compares version strings numerically (1.5.5.10 sorts after 1.5.5.3,
+# which a lexical compare gets backwards); if the newest of the two is what's
+# already on disk, there is nothing to do.
+if [[ -n "$installed" && -n "$latest" ]]; then
+  newest="$(printf '%s\n%s\n' "$installed" "$latest" | sort -V 2>/dev/null | tail -1)"
+  if [[ -z "$newest" ]]; then
+    # No `sort -V` (non-GNU sort): fall back to reinstalling on any mismatch.
+    [[ "$installed" == "$latest" ]] && exit 0
+  elif [[ "$newest" == "$installed" ]]; then
+    exit 0
+  fi
+  printf 'chromium-web-store: updating %s -> %s\n' "$installed" "$latest"
+fi
+
+tmp="$(mktemp -d)" || { warn "could not create temp dir — skipping"; exit 0; }
+trap 'rm -rf "$tmp"' EXIT
+
+# `latest/download/Chromium.Web.Store.crx` is an unversioned alias the project
+# publishes alongside its versioned assets, so this always tracks the newest
+# release without having to parse the GitHub API.
+if ! curl -fsSL --retry 3 --connect-timeout 20 -o "$tmp/cws.crx" "$URL"; then
+  warn "download failed — skipping"
+  exit 0
+fi
+
+# A .crx is a small binary header (magic + version + protobuf) glued in front
+# of an ordinary zip archive, with manifest.json at its root. unzip locates the
+# zip's central directory by scanning backward from EOF, so it extracts fine —
+# it just warns about the leading header bytes and exits 1 even on success.
+# Check for manifest.json instead of the exit code.
+unzip -q -o "$tmp/cws.crx" -d "$tmp/extracted" 2>/dev/null
+if [[ ! -f "$tmp/extracted/manifest.json" ]]; then
+  warn "no manifest.json found after extraction — skipping"
+  exit 0
+fi
+
+# Stage the new copy beside the destination, then swap, so an interrupted run
+# never leaves a half-extracted extension where the browsers expect a working one.
+mkdir -p "$(dirname "$DEST")"
+rm -rf "$DEST.new"
+if ! mv "$tmp/extracted" "$DEST.new"; then
+  warn "could not stage extension — skipping"
+  exit 0
+fi
+rm -rf "$DEST"
+mv "$DEST.new" "$DEST"
+
+version="$(manifest_version "$DEST/manifest.json")"
+printf 'chromium-web-store: installed %s to %s\n' "${version:-unknown version}" "$DEST"
+printf 'chromium-web-store: restart Brave / Chromium to load it\n'

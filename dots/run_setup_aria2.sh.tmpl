@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Sets up the aria2 daemon behind the browser download handoff.
+#
+# Chromium-family browsers download on exactly one TCP connection and expose no
+# setting to change it. Against throttled file hosts that measured ~3.5 MB/s
+# where eight parallel connections got ~9.8 MB/s. The Aria2 Explorer extension
+# (packages/browser-extensions.txt) cancels the browser's download and re-issues
+# it to this daemon on 127.0.0.1:6800.
+#
+# Three pieces have to line up. Two are plain dotfiles; this script owns the
+# rest, because neither can be a file in the repo:
+#   ~/.config/aria2/aria2.conf       chezmoi-managed, deliberately secret-free
+#   ~/.config/systemd/user/aria2.service   chezmoi-managed
+#   ~/.config/aria2/rpc-secret.env   generated here, never committed
+#
+# This is a `run_` script, not `run_once_`: the unit file changes over time and
+# systemd needs a daemon-reload when it does. Every step is idempotent, and the
+# secret is generated only when absent — re-running never invalidates the token
+# already pasted into the extension's options page.
+{{ if not .isDesktop }}
+# Headless machine: no browser to hand downloads off from.
+exit 0
+{{ end }}
+# Deliberately not `set -e`, matching run_install_adnauseam.sh: a chezmoi script
+# exiting non-zero aborts the entire apply, and a download daemon is not worth
+# failing a dotfiles install over. Every failure path below warns and exits 0.
+set -uo pipefail
+
+CONF_DIR="$HOME/.config/aria2"
+SECRET_ENV="$CONF_DIR/rpc-secret.env"
+SESSION="$HOME/.local/state/aria2/session"
+UNIT="aria2.service"
+
+warn() { printf 'aria2: %s\n' "$*" >&2; }
+
+# Ordering safety net rather than a real branch: packages/desktop.txt installs
+# aria2, but install.sh runs the package step and `chezmoi apply` in that order
+# only on a full install. Applying dotfiles alone on a fresh box lands here first.
+if ! command -v aria2c >/dev/null 2>&1; then
+  warn "aria2c not found — install packages/desktop.txt, then re-run chezmoi apply"
+  exit 0
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  warn "systemctl not found — nothing to manage the daemon with, skipping"
+  exit 0
+fi
+
+mkdir -p "$CONF_DIR" "$(dirname "$SESSION")"
+
+# aria2 refuses to start when input-file names a path that does not exist, and
+# aria2.conf points input-file and save-session at this one file so a restart
+# resumes a multi-gigabyte transfer instead of discarding it.
+[[ -f "$SESSION" ]] || : > "$SESSION"
+
+# Generated once and then left alone. Regenerating on every apply would break
+# the extension silently, since it stores the token on its own options page.
+if [[ ! -f "$SECRET_ENV" ]]; then
+  secret="$(od -An -tx1 -N32 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  if [[ -z "$secret" ]]; then
+    warn "could not generate an RPC secret — skipping daemon setup"
+    exit 0
+  fi
+  ( umask 077; printf 'ARIA2_RPC_SECRET=%s\n' "$secret" >"$SECRET_ENV" ) || {
+    warn "could not write $SECRET_ENV — skipping daemon setup"
+    exit 0
+  }
+  printf 'aria2: generated a new RPC secret. Paste it into the Aria2 Explorer\n'
+  printf '       options page under RPC > secret token:\n\n         %s\n\n' "$secret"
+fi
+chmod 600 "$SECRET_ENV" 2>/dev/null
+
+# A user unit does not exist for systemd until it is told to look again, and the
+# file may well have changed since the last apply.
+systemctl --user daemon-reload 2>/dev/null
+
+if ! systemctl --user enable --now "$UNIT" 2>/dev/null; then
+  warn "could not enable $UNIT — no user systemd instance? (a headless login"
+  warn "needs \`loginctl enable-linger $USER\` before --user units will run)"
+  exit 0
+fi
+
+# Deliberately no restart here. `chezmoi apply` is run casually and often, and
+# restarting the daemon mid-transfer costs up to save-session-interval seconds
+# of progress on every download in flight. Conf changes wait for a manual nudge.
+if ! systemctl --user is-active --quiet "$UNIT"; then
+  warn "$UNIT is enabled but not running — check \`systemctl --user status $UNIT\`"
+fi
+
+exit 0

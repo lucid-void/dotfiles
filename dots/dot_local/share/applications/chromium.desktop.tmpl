@@ -1,4 +1,5 @@
-{{- $flags := includeTemplate "browser-extension-flags" . | trim -}}
+{{- $shared := includeTemplate "browser-extension-flags" . | trim -}}
+{{- $flags := printf "%s --extension-mime-request-handling=always-prompt-for-install" $shared -}}
 {{/*
   Overrides /usr/share/applications/chromium.desktop (ungoogled-chromium-bin, AUR).
   The filename must match the system entry exactly — that is what makes
@@ -7,6 +8,18 @@
   Loads the same extension set as brave-origin.desktop via the shared
   browser-extension-flags template. No StartupWMClass here because the upstream
   entry omits it too.
+
+  --extension-mime-request-handling is ungoogled-chromium's own patch, not an
+  upstream Chromium switch, so it is appended here rather than in the shared
+  template — Brave has no such switch. It is the command-line equivalent of
+  setting chrome://flags/#extension-mime-request-handling to "Always prompt for
+  install", and it makes navigating to a .crx offer an install prompt instead
+  of saving the file. That is what chromium-web-store's install buttons need to
+  actually install anything; without it they just download.
+
+  Installing that way also needs Developer mode on chrome://extensions, which
+  is a profile preference rather than a flag — see
+  dots/run_enable_chromium_developer_mode.sh.tmpl.
 */ -}}
 [Desktop Entry]
 Version=1.0

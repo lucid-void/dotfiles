@@ -9,7 +9,17 @@
   # Was `cat`, which disabled paging outright — `git log` in a big repo dumped
   # the entire history into the scrollback. delta pages *and* syntax-highlights;
   # it comes from packages/headless.txt (`git-delta`, official extra repo).
-  pager    = delta
+  #
+  # A bare `delta` here would make every `git diff` / `git log` / `git show`
+  # fail outright on a machine where that install didn't land — git resolves
+  # the pager itself, so there is nothing to fall back to. Git runs a pager
+  # with shell metacharacters through `sh -c`, so the probe below degrades to
+  # `less` (git's own default pager) instead. `exec` matters twice: it keeps
+  # the extra shell out of the pipeline, and it stops delta's own exit status
+  # from tripping the `||` into running less over the same output. Resolved
+  # per invocation rather than at chezmoi-apply time, so a box that gains or
+  # loses delta later needs no re-apply.
+  pager    = "command -v delta >/dev/null 2>&1 && exec delta || exec less"
 
 # delta reuses bat's theme cache, so the Catppuccin Macchiato theme fetched by
 # run_once_install_bat_theme.sh is what it renders with — one theme, both tools.
@@ -19,8 +29,10 @@
   syntax-theme = Catppuccin Macchiato
 
 # Routes `git add -p` and friends through delta too, not just plain diffs.
+# Same guard as core.pager, and the same reason — an unset diffFilter is a
+# plain pass-through, so `cat` is the exact no-delta behaviour.
 [interactive]
-  diffFilter = delta --color-only
+  diffFilter = "command -v delta >/dev/null 2>&1 && exec delta --color-only || exec cat"
 
 [init]
   defaultBranch = main

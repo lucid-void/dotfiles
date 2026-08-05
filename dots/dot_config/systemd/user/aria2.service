@@ -1,0 +1,29 @@
+[Unit]
+# The aria2 daemon that Brave hands large downloads off to. See
+# ~/.config/aria2/aria2.conf for the tuning and why this exists at all.
+Description=aria2 download daemon (browser download handoff)
+Documentation=man:aria2c(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# The secret is generated per machine by dots/run_setup_aria2.sh.tmpl and lives
+# outside the repo. Deliberately no leading `-`: if the file is missing the unit
+# must fail loudly rather than quietly starting an RPC port with no auth.
+EnvironmentFile=%h/.config/aria2/rpc-secret.env
+
+# Passing the secret here rather than in aria2.conf keeps it out of a
+# chezmoi-managed file, and costs nothing in exposure: aria2 overwrites its own
+# argv at startup, so the token reads as a run of asterisks in `ps` and in
+# /proc/<pid>/cmdline. Verified on 1.37.0 — worth re-checking if that ever
+# stops being true, since it is the only thing keeping the token off the
+# process list.
+ExecStart=/usr/bin/aria2c --conf-path=%h/.config/aria2/aria2.conf --rpc-secret=${ARIA2_RPC_SECRET}
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
