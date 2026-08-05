@@ -1,26 +1,13 @@
 #!/usr/bin/env bash
 #
 # Unattended installer — never prompts, safe for Packer, cloud-init and Codespaces.
-#
-#   bash install.sh              # desktop (default)
-#   bash install.sh --headless   # headless: VM, container, Codespace
-#   bash install.sh --no-packages  # dotfiles only, no package lists
-#
-# Equivalent env vars: DOTFILES_HEADLESS=1, DOTFILES_SKIP_PACKAGES=1
-# Codespaces is auto-detected and treated as headless.
-#
-# Layout:
-#   pre   — system packages   (needs root/passwordless sudo; skipped otherwise)
-#   main  — dotfiles          (no privileges required)
-#   post  — login shell       (needs root/passwordless sudo; skipped otherwise)
+# Run `install.sh --help` for usage; the text lives in usage() below so it can
+# never drift out of sync with the flags actually parsed.
 #
 # Tools come from the packages/ lists, not from a version manager. Arch and
 # Debian/Ubuntu both get the full headless tool set; on any other distro the pre
-# phase installs only the four prerequisites below, so you get the dotfiles and
-# nothing else.
-#
-# Only "main" is required. The pre/post phases no-op with a warning when
-# privileges are unavailable, so the script still succeeds on locked-down hosts.
+# phase installs only the prerequisites in REQUIRED_CMDS, so you get the
+# dotfiles and nothing else.
 
 set -euo pipefail
 
@@ -36,21 +23,75 @@ SKIP_PACKAGES=false
 if [[ -n "${DOTFILES_SKIP_PACKAGES:-}" ]]; then
   SKIP_PACKAGES=true
 fi
+# Kept as a heredoc rather than `sed`-ing the header comment above: that version
+# was pinned to line numbers ('2,19p'), so it silently truncated mid-sentence as
+# soon as the header grew, and it printed the leading `#` of every line.
+usage() {
+  cat <<'USAGE'
+Unattended installer — never prompts, safe for Packer, cloud-init and Codespaces.
+
+  bash install.sh                # desktop (default)
+  bash install.sh --headless     # headless: VM, container, Codespace
+  bash install.sh --desktop      # force desktop mode
+  bash install.sh --no-packages  # dotfiles only, no package lists
+
+Equivalent env vars: DOTFILES_HEADLESS=1, DOTFILES_SKIP_PACKAGES=1
+Codespaces is auto-detected and treated as headless.
+
+Phases:
+  pre   — system packages   (needs root/passwordless sudo; skipped otherwise)
+  main  — dotfiles          (no privileges required)
+  post  — login shell       (needs root/passwordless sudo; skipped otherwise)
+
+Only "main" is required. The pre/post phases no-op with a warning when
+privileges are unavailable, so the script still succeeds on locked-down hosts.
+
+Note: --headless/--desktop only take effect on a machine chezmoi has not been
+initialised on yet. The answer is persisted by promptBoolOnce in
+dots/.chezmoi.toml.tmpl; to change it later, edit isDesktop in
+~/.config/chezmoi/chezmoi.toml (this script warns when they disagree).
+USAGE
+}
+
 for arg in "$@"; do
   case "$arg" in
     --headless)    IS_DESKTOP=false ;;
     --desktop)     IS_DESKTOP=true ;;
     --no-packages) SKIP_PACKAGES=true ;;
-    -h|--help)  sed -n '2,19p' "${BASH_SOURCE[0]}"; exit 0 ;;
-    *) echo "install.sh: unknown argument: $arg" >&2; exit 2 ;;
+    -h|--help)  usage; exit 0 ;;
+    *) echo "install.sh: unknown argument: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m warning:\033[0m %s\n' "$*" >&2; }
 
+# ── apt helper ─────────────────────────────────────────────────
+# One entry point for every apt-get install in this script. `apt-get update` is
+# expensive and was previously run twice on a fresh Debian box (once for the
+# prerequisites, once for headless-apt.txt); APT_UPDATED makes the second call a
+# no-op. Refuses to run with an empty package list — `apt-get install` with no
+# operands exits 100, which the pacman path already guards against.
+#
+# Never fatal: every failure warns, matching the rest of the pre phase.
+APT_UPDATED=false
+apt_install() {
+  local what="$1"; shift
+  if [[ $# -eq 0 ]]; then
+    warn "no packages to install for $what — skipping"
+    return 0
+  fi
+  if [[ "$APT_UPDATED" != true ]]; then
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+      || warn "apt-get update failed — $what may be stale"
+    APT_UPDATED=true
+  fi
+  "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" \
+    || warn "apt-get install failed for $what — install manually: $*"
+}
+
 # ── Privilege detection ────────────────────────────────────────
-# SUDO is the command prefix to run something as root, or "" if we cannot.
+# SUDO is the command prefix to run something as root, or empty if we cannot.
 # `sudo -n` never prompts for a password, so an unattended run can't hang.
 #
 # On an interactive desktop run without passwordless sudo, we ask once
@@ -59,17 +100,26 @@ warn() { printf '\033[1;33m warning:\033[0m %s\n' "$*" >&2; }
 # at every privileged step. This only ever fires when IS_DESKTOP is true *and*
 # stdin is a TTY, so headless/Codespaces/CI runs keep the original zero-prompt
 # behaviour untouched.
-SUDO=""
+#
+# SUDO is an array rather than a string so it expands with proper quoting —
+# `"${SUDO[@]}"` is empty when we are already root, and shellcheck-clean either
+# way, where the old unquoted `$SUDO` relied on deliberate word-splitting.
+SUDO=()
 HAVE_ROOT=true
 SUDO_KEEPALIVE_PID=""
 if [[ "$(id -u)" -ne 0 ]]; then
   if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    SUDO="sudo -n"
+    SUDO=(sudo -n)
   elif [[ "$IS_DESKTOP" == true && -t 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -v; then
-    SUDO="sudo"
-    ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 60; done ) &
+    SUDO=(sudo)
+    # `|| true` on the refresh is load-bearing: the subshell inherits `set -e`
+    # from above, so without it the first `sudo -n true` that fails (another
+    # `sudo -k`, timestamp_timeout=0, a tty_tickets mismatch) kills the
+    # refresher silently — and the next privileged step prompts again, which is
+    # the exact behaviour this block exists to prevent.
+    ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null || true; sleep 60; done ) &
     SUDO_KEEPALIVE_PID=$!
-    trap '[[ -n "$SUDO_KEEPALIVE_PID" ]] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+    trap 'if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true; fi' EXIT
   else
     HAVE_ROOT=false
   fi
@@ -117,16 +167,13 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     # failure here (network hiccup, transient mirror error) would abort the
     # entire script, contradicting "nothing in the pre phase is fatal".
     if command -v apt-get >/dev/null 2>&1; then
-      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq \
-        || warn "apt-get update failed — prerequisite install may be stale"
-      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}" \
-        || warn "apt-get install failed — install manually: ${pkgs[*]}"
+      apt_install "prerequisites" "${pkgs[@]}"
     elif command -v dnf >/dev/null 2>&1; then
-      $SUDO dnf install -y "${pkgs[@]}" || warn "dnf failed — install manually: ${pkgs[*]}"
+      "${SUDO[@]}" dnf install -y "${pkgs[@]}" || warn "dnf failed — install manually: ${pkgs[*]}"
     elif command -v pacman >/dev/null 2>&1; then
-      $SUDO pacman -Sy --noconfirm --needed "${pkgs[@]}" || warn "pacman failed — install manually: ${pkgs[*]}"
+      "${SUDO[@]}" pacman -Sy --noconfirm --needed "${pkgs[@]}" || warn "pacman failed — install manually: ${pkgs[*]}"
     elif command -v apk >/dev/null 2>&1; then
-      $SUDO apk add --no-cache "${pkgs[@]}" || warn "apk failed — install manually: ${pkgs[*]}"
+      "${SUDO[@]}" apk add --no-cache "${pkgs[@]}" || warn "apk failed — install manually: ${pkgs[*]}"
     else
       warn "unrecognised package manager — install manually: ${pkgs[*]}"
     fi
@@ -147,18 +194,28 @@ read_pkg_list() {
     warn "package list not found: $file"
     return 0
   fi
+  # `|| true`: grep exits 1 on a list that is entirely comments, which is an
+  # empty list, not an error.
   sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$file" \
     | grep -v '^$' || true
 }
 
+# Reads every list in "$@" into the PKGS array, replacing whatever was in it.
+# PKGS is declared here rather than left implicit: the previous version appended
+# to whatever the caller happened to leave behind, so each of the three call
+# sites had to remember `PKGS=()` first, and reordering them would silently have
+# installed the previous phase's list a second time.
+PKGS=()
 collect_pkgs() {
   local file line
+  PKGS=()
   for file in "$@"; do
     while IFS= read -r line; do
       [[ -n "$line" ]] && PKGS+=("$line")
     done < <(read_pkg_list "$file")
   done
 }
+
 
 # ── Non-Arch (apt) package install ──────────────────────────────
 # Full parity with headless.txt for Debian/Ubuntu VMs and Codespaces. Package
@@ -180,7 +237,11 @@ collect_pkgs() {
 # than bare: under `set -e`, an unguarded failure — even a `cmd1 && cmd2`
 # statement where cmd1 legitimately returns false, like the very next line —
 # would abort the *entire* install.sh, not just this one optional tool.
-fetch_github_release_binary() {
+#
+# Runs in a subshell so a single EXIT trap can clean the temp dir up on every
+# path — including SIGINT, which the previous version's five hand-written
+# `rm -rf "$tmp"` calls could not catch.
+fetch_github_release_binary() (
   local repo="$1" asset="$2" dest="$3" inner_name="${4:-$3}"
   if command -v "$dest" >/dev/null 2>&1; then
     return 0
@@ -188,7 +249,9 @@ fetch_github_release_binary() {
 
   local url tmp tag
   if [[ "$asset" == *%V%* ]]; then
-    if ! tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest" | sed 's#.*/##')" || [[ -z "$tag" ]]; then
+    if ! tag="$(curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 \
+          -o /dev/null -w '%{url_effective}' \
+          "https://github.com/$repo/releases/latest" | sed 's#.*/##')" || [[ -z "$tag" ]]; then
       warn "could not resolve latest release for $repo — install $dest manually"
       return 1
     fi
@@ -198,10 +261,11 @@ fetch_github_release_binary() {
     url="https://github.com/$repo/releases/latest/download/$asset"
   fi
 
-  tmp="$(mktemp -d)"
-  if ! curl -fsSL -o "$tmp/$asset" "$url"; then
+  tmp="$(mktemp -d)" || { warn "could not create temp dir for $dest"; return 1; }
+  trap 'rm -rf "$tmp"' EXIT
+
+  if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$tmp/$asset" "$url"; then
     warn "download failed for $dest ($url) — install manually"
-    rm -rf "$tmp"
     return 1
   fi
 
@@ -210,14 +274,16 @@ fetch_github_release_binary() {
     *.tar.gz|*.tgz)
       if ! tar -xzf "$tmp/$asset" -C "$tmp"; then
         warn "could not extract $asset — install $dest manually"
-        rm -rf "$tmp"
         return 1
       fi
+      # `-print -quit`, not `| head -1`: head closing the pipe hands find a
+      # SIGPIPE (exit 141), which `pipefail` promotes to a failed assignment and
+      # `set -e` turns into an abort of the *whole* script — for an optional
+      # tool. Same idiom the extension installers already use.
       local found
-      found="$(find "$tmp" -type f -name "$inner_name" | head -1)"
+      found="$(find "$tmp" -type f -name "$inner_name" -print -quit)"
       if [[ -z "$found" ]]; then
         warn "could not find $inner_name inside $asset — install $dest manually"
-        rm -rf "$tmp"
         return 1
       fi
       install -m 755 "$found" "$HOME/.local/bin/$dest" \
@@ -228,8 +294,7 @@ fetch_github_release_binary() {
         || warn "could not install $dest to ~/.local/bin"
       ;;
   esac
-  rm -rf "$tmp"
-}
+)
 
 install_apt_headless() {
   mkdir -p "$HOME/.local/bin"
@@ -238,7 +303,6 @@ install_apt_headless() {
     warn "no root or passwordless sudo — install these yourself, then re-run:"
     warn "  apt-get install $(read_pkg_list "$PKG_DIR/headless-apt.txt" | tr '\n' ' ')"
   else
-    PKGS=()
     collect_pkgs "$PKG_DIR/headless-apt.txt"
 
     # GitHub CLI and HashiCorp both ship their own apt repos; add each only
@@ -247,23 +311,20 @@ install_apt_headless() {
     # the only way a failure partway (bad network, permission edge case) stops
     # just this repo add instead of aborting the whole script.
     if ! command -v gh >/dev/null 2>&1; then
-      if $SUDO mkdir -p -m 755 /etc/apt/keyrings \
+      if "${SUDO[@]}" mkdir -p -m 755 /etc/apt/keyrings \
         && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-             | $SUDO tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
-        && $SUDO chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+             | "${SUDO[@]}" tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
+        && "${SUDO[@]}" chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-             | $SUDO tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+             | "${SUDO[@]}" tee /etc/apt/sources.list.d/github-cli.list >/dev/null
       then
         PKGS+=(gh)
       else
         warn "could not add the GitHub CLI apt repo — install gh manually"
       fi
     fi
-    log "Installing ${#PKGS[@]} packages from $(basename "$PKG_DIR/headless-apt.txt") (+ gh repo as needed)"
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq \
-      || warn "apt-get update failed — package install may be stale"
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PKGS[@]}" \
-      || warn "apt-get failed — check the package names in $PKG_DIR/headless-apt.txt"
+    log "Installing ${#PKGS[@]} packages from headless-apt.txt (+ gh repo as needed)"
+    apt_install "headless-apt.txt" "${PKGS[@]}"
   fi
 
   # bat/fd-find install their binaries as batcat/fdfind on Debian — symlink
@@ -287,8 +348,12 @@ install_apt_headless() {
   # complete `if ... ; then ... || warn; fi` — the trailing `|| warn` matters
   # under `set -e`: without it, a failed install (network down) would be the
   # last command run and would abort the whole script.
+  # `-f` matters on a piped install: without it curl hands an HTTP error body
+  # (a 502 page, a captive-portal interstitial) straight to `sh` and it gets
+  # executed. Every other curl in this repo already uses -fsSL.
   if ! command -v starship >/dev/null 2>&1; then
-    curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir "$HOME/.local/bin" >/dev/null \
+    curl -fsSL --retry 3 --connect-timeout 20 https://starship.rs/install.sh \
+      | sh -s -- -y --bin-dir "$HOME/.local/bin" >/dev/null \
       || warn "starship install failed — install manually"
   fi
   if ! command -v rustup >/dev/null 2>&1; then
@@ -316,7 +381,6 @@ install_apt_headless() {
 if [[ "$SKIP_PACKAGES" == true ]]; then
   log "Skipping package lists (--no-packages)"
 elif command -v pacman >/dev/null 2>&1; then
-  PKGS=()
   pkg_files=("$PKG_DIR/headless.txt")
   if [[ "$IS_DESKTOP" == true ]]; then
     pkg_files+=("$PKG_DIR/desktop.txt")
@@ -332,7 +396,7 @@ elif command -v pacman >/dev/null 2>&1; then
     log "Installing ${#PKGS[@]} packages from $(basename -a "${pkg_files[@]}" | tr '\n' ' ')"
     # -Syu rather than -Sy: pulling a package built against a newer library into
     # a half-updated system is the classic Arch partial-upgrade breakage.
-    $SUDO pacman -Syu --noconfirm --needed "${PKGS[@]}" \
+    "${SUDO[@]}" pacman -Syu --noconfirm --needed "${PKGS[@]}" \
       || warn "pacman failed — check the package names in $PKG_DIR"
   fi
 elif command -v apt-get >/dev/null 2>&1; then
@@ -348,20 +412,22 @@ fi
 # helper is present. makepkg refuses to run as root, so this needs a normal
 # user holding passwordless sudo.
 
-bootstrap_paru() {
+#
+# Subshell + EXIT trap so an interrupted bootstrap doesn't leave the clone and a
+# half-built package behind in /tmp.
+bootstrap_paru() (
   local tmp rc=0
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d)" || { warn "could not create temp dir for the paru bootstrap"; return 1; }
+  trap 'rm -rf "$tmp"' EXIT
   if git clone --depth 1 https://aur.archlinux.org/paru-bin.git "$tmp/paru-bin"; then
     ( cd "$tmp/paru-bin" && makepkg -si --noconfirm ) || rc=$?
   else
     rc=1
   fi
-  rm -rf "$tmp"
   return "$rc"
-}
+)
 
 if [[ "$SKIP_PACKAGES" != true ]] && command -v pacman >/dev/null 2>&1; then
-  PKGS=()
   aur_files=("$PKG_DIR/headless-aur.txt")
   if [[ "$IS_DESKTOP" == true ]]; then
     aur_files+=("$PKG_DIR/desktop-aur.txt")
@@ -450,31 +516,34 @@ if [[ "$IS_DESKTOP" == true ]]; then
     /etc/brave/policies/managed/extensions.json
   )
 
-  stale_found=false
+  # True only for a file this script recognises as one it wrote. Written once
+  # and used by both loops below — the detection used to be spelled out twice,
+  # so the two could drift and silently start disagreeing about what to delete.
+  is_retired_policy() {
+    [[ -f "$1" ]] && grep -qE 'ExtensionInstallForcelist|ExtensionSettings' "$1" 2>/dev/null
+  }
+
+  stale_policies=()
   for policy in "${RETIRED_POLICIES[@]}"; do
-    [[ -f "$policy" ]] || continue
-    grep -qE 'ExtensionInstallForcelist|ExtensionSettings' "$policy" 2>/dev/null || continue
-    stale_found=true
+    is_retired_policy "$policy" && stale_policies+=("$policy")
   done
 
-  if ! $stale_found; then
+  if [[ ${#stale_policies[@]} -eq 0 ]]; then
     :   # nothing left over
   elif ! $HAVE_ROOT; then
     warn "no root or passwordless sudo — a retired extension policy is still in /etc"
     warn "  it blocks the local-CRX install that replaced it; re-run install.sh"
     warn "  with privileges, or remove it by hand:"
-    for policy in "${RETIRED_POLICIES[@]}"; do
-      [[ -f "$policy" ]] && warn "    sudo rm $policy"
+    for policy in "${stale_policies[@]}"; do
+      warn "    sudo rm $policy"
     done
   else
-    for policy in "${RETIRED_POLICIES[@]}"; do
-      [[ -f "$policy" ]] || continue
-      grep -qE 'ExtensionInstallForcelist|ExtensionSettings' "$policy" 2>/dev/null || continue
-      if $SUDO rm -f "$policy"; then
+    for policy in "${stale_policies[@]}"; do
+      if "${SUDO[@]}" rm -f "$policy"; then
         log "Removed retired extension policy $policy"
         # rmdir, not rm -r: the managed/ and policies/ directories are only
         # cleared when this script's file was the last thing in them.
-        $SUDO rmdir "$(dirname "$policy")" "$(dirname "$(dirname "$policy")")" 2>/dev/null || true
+        "${SUDO[@]}" rmdir "$(dirname "$policy")" "$(dirname "$(dirname "$policy")")" 2>/dev/null || true
       else
         warn "could not remove $policy — it will block the local CRX install"
       fi
@@ -489,12 +558,47 @@ fi
 
 log "Installing chezmoi"
 if ! command -v chezmoi >/dev/null 2>&1; then
-  sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+  # The installer is captured and checked rather than piped straight into
+  # `sh -c "$(...)"`: on a failed download the command substitution is empty,
+  # `sh -c ""` exits 0, `set -e` never fires, and the real failure surfaces
+  # several lines later as an opaque "chezmoi: command not found". This is the
+  # one step in the script that genuinely must succeed, so it fails loudly.
+  chezmoi_installer="$(curl -fsLS --retry 3 --connect-timeout 20 get.chezmoi.io)" || {
+    warn "could not download the chezmoi installer from get.chezmoi.io"
+    warn "install chezmoi yourself and re-run: https://www.chezmoi.io/install/"
+    exit 1
+  }
+  if [[ -z "$chezmoi_installer" ]]; then
+    warn "the chezmoi installer downloaded empty — refusing to run it"
+    exit 1
+  fi
+  sh -c "$chezmoi_installer" -- -b "$HOME/.local/bin"
+
+  if ! command -v chezmoi >/dev/null 2>&1; then
+    warn "the chezmoi installer ran but chezmoi is still not on PATH"
+    warn "check that $HOME/.local/bin is writable, then re-run"
+    exit 1
+  fi
 fi
 
 # --promptBool is always passed explicitly: chezmoi does *not* fall back to a
 # template default when it cannot reach a TTY, it errors with EOF. Passing the
 # flag is what makes this run unattended.
+#
+# It is only honoured on a machine chezmoi has not been initialised on yet:
+# dots/.chezmoi.toml.tmpl uses promptBoolOnce, which returns the persisted
+# answer thereafter. Warn on a mismatch rather than letting --headless look like
+# it worked while every desktop-only script keeps running.
+CHEZMOI_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.toml"
+if [[ -f "$CHEZMOI_CONFIG" ]] && grep -q '^[[:space:]]*isDesktop[[:space:]]*=' "$CHEZMOI_CONFIG" 2>/dev/null; then
+  persisted="$(sed -n 's/^[[:space:]]*isDesktop[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$CHEZMOI_CONFIG" | head -1)"
+  if [[ -n "$persisted" && "$persisted" != "$IS_DESKTOP" ]]; then
+    warn "chezmoi already has isDesktop=$persisted persisted in $CHEZMOI_CONFIG"
+    warn "  this run asked for isDesktop=$IS_DESKTOP, which promptBoolOnce will ignore"
+    warn "  edit that file if you meant to switch the machine's mode"
+  fi
+fi
+
 log "Applying dotfiles (isDesktop=$IS_DESKTOP)"
 chezmoi init --apply --no-tty \
   --promptBool "isDesktop=$IS_DESKTOP" \
@@ -504,10 +608,17 @@ chezmoi init --apply --no-tty \
 # POST — login shell
 # ═══════════════════════════════════════════════════════════════
 
+# The passwd entry, not $SHELL: $SHELL is the shell of the *invoking* session,
+# so running `bash install.sh` from a zsh terminal on a machine whose login
+# shell is still bash used to report "already zsh" and skip chsh forever.
+current_login_shell() {
+  getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7
+}
+
 ZSH_PATH="$(command -v zsh 2>/dev/null || true)"
 if [[ -z "$ZSH_PATH" ]]; then
   warn "zsh not installed — skipping login shell change"
-elif [[ "${SHELL:-}" == "$ZSH_PATH" ]]; then
+elif [[ "$(current_login_shell)" == "$ZSH_PATH" ]]; then
   log "Login shell already zsh"
 elif ! $HAVE_ROOT; then
   warn "no root or passwordless sudo — set the login shell yourself:"
@@ -515,8 +626,8 @@ elif ! $HAVE_ROOT; then
 else
   log "Setting login shell to zsh"
   grep -qxF "$ZSH_PATH" /etc/shells 2>/dev/null \
-    || echo "$ZSH_PATH" | $SUDO tee -a /etc/shells >/dev/null
-  $SUDO chsh -s "$ZSH_PATH" "$(id -un)" || warn "chsh failed — set it manually"
+    || echo "$ZSH_PATH" | "${SUDO[@]}" tee -a /etc/shells >/dev/null
+  "${SUDO[@]}" chsh -s "$ZSH_PATH" "$(id -un)" || warn "chsh failed — set it manually"
 fi
 
 # Pre-warm zinit so the first real terminal is fast. Never fatal.
