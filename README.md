@@ -72,10 +72,12 @@ Three phases. Only the middle one is required — the other two need root and ar
 | Phase | Does | Needs root |
 |---|---|---|
 | **pre** | Installs missing prerequisites (`curl`, `git`, `zsh`, `tar`, + `fontconfig` on desktop) via apt/dnf/pacman/apk, then the full `packages/` lists on Arch or Debian/Ubuntu | yes — skipped if unavailable |
-| **main** | Installs chezmoi (if the package list didn't), applies dotfiles | no |
+| **main** | Fetches submodules, installs chezmoi (if the package list didn't), applies dotfiles | no |
 | **post** | Adds zsh to `/etc/shells`, `chsh` to zsh, pre-warms zinit | yes — skipped if unavailable |
 
 The prerequisite step only runs when something is actually missing, so it is a no-op on an already-provisioned machine and won't touch your package manager unnecessarily.
+
+**`--recursive` on the clone is optional.** The quickshell config in [`dots/dot_config/quickshell/end4-pC`](dots/dot_config/quickshell/end4-pC) is a submodule, and an unpopulated one would apply as an empty `~/.config/quickshell/end4-pC`. `install.sh` fills it in before the apply — `git submodule update --init` in a checkout, or a direct clone of each `.gitmodules` entry when the tree came from a source tarball and has no `.git` at all. A repo already cloned `--recursive` skips the step entirely, so re-runs touch the network not at all.
 
 If a phase is skipped, the script prints exactly what to run by hand and still exits 0. Nothing in the pre phase is fatal — a package that fails to install warns and the run continues, since **main** is the phase that actually matters.
 

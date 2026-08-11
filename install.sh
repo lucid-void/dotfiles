@@ -556,6 +556,58 @@ fi
 # MAIN — dotfiles (no privileges needed)
 # ═══════════════════════════════════════════════════════════════
 
+# ── Submodules ─────────────────────────────────────────────────
+# A plain `git clone` (no --recursive) leaves every submodule as an empty
+# directory, and a GitHub source tarball omits them entirely. chezmoi then
+# applies that emptiness happily: ~/.config/quickshell/end4-pC ends up with
+# nothing in it, and the config Hyprland points `qsConfig` at (see
+# dots/dot_config/hypr/hyprland/variables.lua) has nothing to load. So this runs
+# *before* the apply, not after.
+#
+# Not gated on --headless: .chezmoiignore does not exclude .config/quickshell,
+# so a headless machine is handed the same source tree and would hit the same
+# empty directory.
+#
+# Never fatal — a missing submodule costs one config, where aborting would cost
+# the whole dotfiles apply.
+if [[ -f "$REPO_DIR/.gitmodules" ]]; then
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git not installed — cannot fetch submodules; their configs will apply empty"
+  elif git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    # `git submodule status` prefixes an uninitialised submodule with `-`, so a
+    # repo that was already cloned --recursive touches the network not at all.
+    if git -C "$REPO_DIR" submodule status --recursive 2>/dev/null | grep -q '^-'; then
+      log "Fetching submodules"
+      git -C "$REPO_DIR" submodule update --init --recursive --depth 1 \
+        || warn "submodule fetch failed — re-run: git -C $REPO_DIR submodule update --init --recursive"
+    fi
+  else
+    # Not a checkout at all — a downloaded tarball or zip. There is no submodule
+    # machinery to init here, so each .gitmodules entry is cloned by hand.
+    # `git config -f` reads the file as plain config and needs no repository.
+    while read -r key sub_path; do
+      [[ -n "$sub_path" ]] || continue
+      name="${key#submodule.}"; name="${name%.path}"
+      url="$(git config -f "$REPO_DIR/.gitmodules" --get "submodule.$name.url" || true)"
+      if [[ -z "$url" ]]; then
+        warn "no url for submodule $name in .gitmodules — skipping"
+        continue
+      fi
+      # Anything already populated is left alone: this path cannot tell a stale
+      # checkout from a current one, and clobbering it would be worse than
+      # leaving it.
+      if [[ -n "$(ls -A "$REPO_DIR/$sub_path" 2>/dev/null)" ]]; then
+        continue
+      fi
+      log "Fetching submodule $sub_path (this is not a git checkout)"
+      # --depth 1: nothing here needs history, and the recorded commit is
+      # unavailable anyway — there is no superproject gitlink to read it from.
+      git clone --depth 1 "$url" "$REPO_DIR/$sub_path" \
+        || warn "could not clone $url — $sub_path will apply empty"
+    done < <(git config -f "$REPO_DIR/.gitmodules" --get-regexp '^submodule\..*\.path$' || true)
+  fi
+fi
+
 log "Installing chezmoi"
 if ! command -v chezmoi >/dev/null 2>&1; then
   # The installer is captured and checked rather than piped straight into
