@@ -3,6 +3,14 @@
     "editor.fontFamily": "'MesloLGS NF', 'monospace'",
     "editor.fontSize": 17,
     "terminal.integrated.fontFamily": "'MesloLGS NF', 'monospace'",
+    // Both set by Claude Code's /terminal-setup, applied here because it writes
+    // to ~/.config/Code/User/ on VSCodium (see the note in keybindings.json).
+    // "off" is the documented fix for garbled text in the integrated terminal;
+    // "auto" restores the default if the terminal ever feels sluggish. 3 is the
+    // value /terminal-setup picks, for usable scrolling in Claude Code's
+    // fullscreen TUI, which scrolls internally rather than via native scrollback.
+    "terminal.integrated.gpuAcceleration": "off",
+    "terminal.integrated.mouseWheelScrollSensitivity": 3,
     "security.workspace.trust.untrustedFiles": "open",
     "explorer.confirmDragAndDrop": false,
     "editor.guides.bracketPairs": true,

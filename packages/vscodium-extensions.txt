@@ -1,0 +1,45 @@
+# VSCodium extension list — desktop only.
+#
+# Format: <publisher>.<name>  # <note>
+# One per line; `#` starts a comment. The ID is what matters — publisher and
+# name exactly as the gallery spells them, case included.
+#
+# ── How these get installed ────────────────────────────────────
+# dots/run_install_vscodium_extensions.sh.tmpl embeds this file at apply time
+# and runs `codium --install-extension <id> --force` for each entry, through
+# whichever gallery codium is configured against. The vscodium-bin-marketplace
+# package repoints that gallery at the Microsoft marketplace, so only
+# extensions published *there* belong in this list.
+#
+# Anything Open VSX-only goes in vscodium-extensions-openvsx.txt instead and is
+# fetched as a VSIX by hand. Same split as headless.txt / headless-aur.txt: by
+# where the thing comes from, not by which machine gets it.
+#
+# It is a `run_` script, not `run_once_`, so it fires on every `chezmoi apply`
+# and `--force` pulls each extension to its current version rather than pinning
+# it to whatever was published the day it was first installed.
+#
+# ⚠️ Deleting a line here does not uninstall anything. Unlike
+# browser-extensions.txt there is no per-extension state on disk to diff
+# against, so removal is manual: `codium --uninstall-extension <id>`.
+
+anthropic.claude-code
+
+# Required by dot_config/VSCodium/User/settings.json's workbench.colorTheme and
+# workbench.iconTheme keys — without these the theme silently falls back to the
+# VSCodium default rather than erroring.
+Catppuccin.catppuccin-vsc
+Catppuccin.catppuccin-vsc-icons
+
+
+aaron-bond.better-comments
+ms-azuretools.vscode-docker
+mikestead.dotenv
+mhutchie.git-graph
+github.vscode-github-actions
+codezombiech.gitignore
+DavidAnson.vscode-markdownlint
+mechatroner.rainbow-csv
+Remisa.shellman
+redhat.vscode-yaml
+alefragnani.project-manager

@@ -28,6 +28,15 @@ mouse-hide-while-typing = true
 # `selection.save_to_clipboard = true` and kitty's `copy_on_select clipboard`.
 copy-on-select = clipboard
 
+# No `keybind` for Claude Code here on purpose. Ghostty speaks the kitty
+# keyboard protocol, so Shift+Enter already arrives as its own key and inserts a
+# newline in the prompt instead of submitting — `/terminal-setup` says as much
+# and writes nothing. Ghostty is also one of the three terminals Claude Code
+# will send a real desktop notification to (kitty and iTerm2 are the others)
+# rather than just ringing the bell, so `preferredNotifChannel` can stay unset.
+# Both facts stop being true inside tmux, which is handled in
+# .config/tmux/tmux.conf. Alacritty needs an explicit binding; see its config.
+
 # No clean line-count equivalent to alacritty's `history = 50000` — ghostty
 # measures scrollback in bytes, not lines. 10,000,000 (~10MB) is ghostty's own
 # default; set explicitly here so a future ghostty version changing its

@@ -20,6 +20,10 @@ tar
 unzip
 zip
 rsync
+# Cloud storage sync. Arch is on 1.75.0, comfortably past the 1.73.0 that first
+# shipped the Filen backend — the apt path can't use its package and fetches
+# upstream instead, see install.sh's install_rclone.
+rclone
 
 # ── Shell and terminal ─────────────────────────────────────────
 zsh

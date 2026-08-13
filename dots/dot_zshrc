@@ -78,8 +78,8 @@ zinit wait lucid for junegunn/fzf-git.sh
 # ── Prompt & tools ─────────────────────────────────────────────
 # Guarded so a host that's missing one of these (partial/failed package
 # install) degrades to a plain shell instead of erroring on every prompt.
+# zoxide is deliberately NOT initialised here — see the end of this file.
 command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
-command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh --cmd cd)"
 command -v fzf >/dev/null 2>&1 && eval "$(fzf --zsh)"
 
 # thefuck spawns a Python interpreter at startup (~300ms), so it is loaded only
@@ -114,6 +114,30 @@ bindkey -M vicmd 'j' history-search-forward
 # Word navigation
 bindkey '^[[1;5C' forward-word   # Ctrl+Right
 bindkey '^[[1;5D' backward-word  # Ctrl+Left
+
+# Home/End. `bindkey -v` swaps the main keymap to viins, which — unlike emacs
+# mode — leaves these unbound, so they do nothing until bound explicitly. Which
+# bytes actually arrive depends on the terminal *and* on whether it's in
+# application cursor mode, so bind every variant in both keymaps rather than
+# trusting terminfo (which is also missing entirely on hosts without a
+# xterm-ghostty entry installed):
+#   ^[[H  / ^[[F   normal cursor mode — ghostty, kitty, foot, wezterm, VTE
+#   ^[OH  / ^[OF   application cursor mode — alacritty, xterm
+#   ^[[1~ / ^[[4~  tmux, screen, linux console
+#   ^[[7~ / ^[[8~  rxvt
+for _k in '^[[H' '^[OH' '^[[1~' '^[[7~'; do
+  bindkey -M viins "$_k" beginning-of-line
+  bindkey -M vicmd "$_k" beginning-of-line
+done
+for _k in '^[[F' '^[OF' '^[[4~' '^[[8~'; do
+  bindkey -M viins "$_k" end-of-line
+  bindkey -M vicmd "$_k" end-of-line
+done
+unset _k
+
+# Delete/Insert are unbound in viins for the same reason.
+bindkey -M viins '^[[3~' delete-char
+bindkey -M vicmd '^[[3~' delete-char
 
 # Cursor shape follows the keymap: beam in insert, block in normal. These are
 # DECSCUSR escapes (CSI Ps SP q), understood by alacritty, kitty, foot, wezterm
@@ -242,7 +266,10 @@ alias vi='nvim'
 alias lg='lazygit'
 alias c='clear'
 alias python='python3'
-alias code='codium'
+# codium is a desktop-only package (.chezmoiignore drops its config on headless),
+# so on a VM this aliased `code` to a command that does not exist — which is
+# worse than no alias, because it also masks any real `code` on PATH.
+command -v codium >/dev/null 2>&1 && alias code='codium'
 
 # ── Functions ──────────────────────────────────────────────────
 # Refresh font cache (fonts live under ~/.local/share/fonts — no sudo needed)
@@ -250,9 +277,58 @@ update_fonts() {
   fc-cache -fv
 }
 
+# ── zoxide ─────────────────────────────────────────────────────
+# Initialised last, on zoxide's own instructions: it wraps `cd` and installs a
+# chpwd hook, and anything that touches either afterwards trips its startup
+# self-check, which then prints a four-line "possible configuration issue"
+# warning on *every* new shell. Loading it up with starship/fzf did exactly
+# that — compinit, carapace and the turbo-loaded plugins all land after that
+# point. Directory tracking worked either way; the warning was the problem.
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh --cmd cd)"
+
+# ── Agent shells (Claude Code) ─────────────────────────────────
+# Claude Code runs one interactive zsh per session, snapshots the aliases,
+# functions and exported environment that shell ends up with, and replays the
+# snapshot in front of every command it runs. So every trade above of exactness
+# for ergonomics also lands on the agent's commands — where there is no human to
+# appreciate it, and no TTY for the tools to degrade gracefully against.
+#
+# CLAUDECODE=1 comes from the claude process itself, so it is already set in the
+# shell that gets snapshotted. Undone here, at the end, rather than guarded at
+# each definition above: the interactive path stays one straight read, and this
+# stays one block to delete. Everything worth inheriting — PATH, EDITOR, XDG_*,
+# the zoxide database itself — is deliberately left alone.
+if [[ -n "$CLAUDECODE" ]]; then
+  # Every rg invocation reads this file, including the ripgrep inside the claude
+  # binary that backs the agent's own search tool. `--max-columns=200` there is
+  # actively harmful rather than merely noisy: a match on a longer line is still
+  # reported as a hit, but printed with the matched text cut off and replaced by
+  # `[... omitted end of long line]`. `--smart-case` and `--hidden` quietly
+  # change what a given search even means. Interactive rg keeps all of it.
+  unset RIPGREP_CONFIG_PATH
+
+  # Not about color — bat and eza both detect the missing TTY and plain
+  # themselves out already. It is about these being *different programs*: eza
+  # rejects ls flags it doesn't implement and renders its own column layout,
+  # bat has its own flag set, and rg's CLI is not grep's. `grep` and `find` are
+  # listed because Claude Code installs its own shims over them; dropping the
+  # aliases here just means the fallback is real grep/find rather than a
+  # near-miss. vim/vi/lg/python/.. are unambiguous and stay.
+  unalias ls lss ll lt cat grep find 2>/dev/null
+
+  # zoxide's self-check fires on the snapshot: the replay restores zoxide's
+  # functions but not the chpwd_functions array, and a missing __zoxide_hook is
+  # exactly the "something clobbered cd after I loaded" case the doctor looks
+  # for. Four lines of warning on stderr in front of every command. This is not
+  # the "initialise zoxide last" problem it reports — that is already true above
+  # — so it is suppressed here only, and interactive shells keep the check.
+  export _ZO_DOCTOR=0
+fi
+
 # ── Greeting ───────────────────────────────────────────────────
-# Skipped inside tmux so every new pane doesn't redraw the whole fetch.
-if [[ -z "$TMUX" ]] && command -v fastfetch >/dev/null 2>&1; then
+# Skipped inside tmux so every new pane doesn't redraw the whole fetch, and
+# under Claude Code, whose snapshot shell would render one nobody ever sees.
+if [[ -z "$TMUX" && -z "$CLAUDECODE" ]] && command -v fastfetch >/dev/null 2>&1; then
   fastfetch
 fi
 

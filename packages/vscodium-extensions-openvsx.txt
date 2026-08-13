@@ -1,0 +1,22 @@
+# VSCodium extensions published only to Open VSX — desktop only.
+#
+# Format: <publisher>.<name>  # <note>
+# One per line; `#` starts a comment. Same ID format as
+# vscodium-extensions.txt; only the install path differs.
+#
+# ── Why this list is separate ──────────────────────────────────
+# codium's gallery is repointed at the Microsoft marketplace by the
+# vscodium-bin-marketplace package, so `codium --install-extension <id>` on
+# anything in here answers "not found". dots/run_install_vscodium_extensions.sh.tmpl
+# resolves each entry through the Open VSX API instead:
+#
+#   https://open-vsx.org/api/<publisher>/<name>/latest  ->  .files.download
+#
+# then installs the downloaded VSIX by path. That needs curl and jq; if either
+# is missing the script warns and skips this list rather than failing the apply.
+#
+# Everything the Microsoft marketplace does carry belongs in
+# vscodium-extensions.txt, which takes the shorter path.
+
+# jeanp413 never published open-remote-ssh to the Microsoft marketplace.
+jeanp413.open-remote-ssh

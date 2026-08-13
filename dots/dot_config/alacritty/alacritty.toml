@@ -60,3 +60,22 @@ hide_when_typing = true
 # `copy-on-select = clipboard` and kitty's `copy_on_select clipboard`.
 [selection]
 save_to_clipboard = true
+
+# Shift+Enter inserts a newline in Claude Code's prompt instead of submitting
+# it. Alacritty is the only terminal in this repo that needs this spelled out:
+# ghostty and kitty both speak the kitty keyboard protocol, so they already
+# send a distinguishable Shift+Enter and work untouched (noted in their configs).
+#
+# ESC+CR is what Claude Code's `/terminal-setup` appends to this file — verified
+# against the strings in the shipped 2.1.229 binary, which writes exactly this
+# stanza and detects "already configured" by grepping for `mods = "Shift"` and
+# `key = "Return"`. Keeping the same key order and spelling means /terminal-setup
+# recognises this as already done and leaves the file alone instead of appending
+# a duplicate (and dropping an `alacritty.toml.<hex>.bak` next to it).
+#
+# Inside tmux this also needs `extended-keys on` — see .config/tmux/tmux.conf.
+# Ctrl+J and `\`-then-Enter are the no-setup fallbacks and keep working either way.
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"

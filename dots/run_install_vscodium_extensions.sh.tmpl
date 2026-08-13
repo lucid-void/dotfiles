@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Installs/updates the VSCodium extensions dot_config/VSCodium/User/settings.json
-# depends on. Runs on every `chezmoi apply` (plain `run_` prefix, not
-# `run_once_`) so extensions get pulled to their latest version each time,
-# not just installed once and left to drift.
+# Installs/updates the VSCodium extensions listed in
+#   packages/vscodium-extensions.txt          (codium's configured gallery)
+#   packages/vscodium-extensions-openvsx.txt  (VSIX fetched from Open VSX)
+# including the ones dot_config/VSCodium/User/settings.json depends on. Runs on
+# every `chezmoi apply` (plain `run_` prefix, not `run_once_`) so extensions get
+# pulled to their latest version each time, not just installed once and left to
+# drift.
 #
 # Deliberately not `set -e`. This script sorts second-to-last in chezmoi's
 # target-name ordering, immediately before setup_aria2.sh — so an Open VSX
@@ -13,24 +16,51 @@ set -uo pipefail
 
 warn() { printf 'vscodium: %s\n' "$*" >&2; }
 
-# Installed through codium's configured gallery. The vscodium-bin-marketplace
-# package repoints that at the Microsoft marketplace, so only extensions
-# published there belong in this list.
-EXTENSIONS=(
-  anthropic.claude-code
-  # Required by settings.json's workbench.colorTheme / iconTheme keys —
-  # without these the theme silently falls back to the VSCodium default.
-  Catppuccin.catppuccin-vsc
-  Catppuccin.catppuccin-vsc-icons
-)
+# Both lists live outside the chezmoi source directory, so they are embedded
+# here at apply time rather than read at run time — the same arrangement as
+# run_install_browser_extensions.sh.tmpl. `.chezmoiroot` pins the source
+# directory to <repo>/dots, which makes ../packages deterministic. Embedding is
+# also what lets chezmoi notice a list edit at all: the rendered script changes
+# whenever a list does, so `chezmoi apply` re-runs it.
+{{- $extList := joinPath .chezmoi.sourceDir ".." "packages" "vscodium-extensions.txt" }}
+{{- $vsxList := joinPath .chezmoi.sourceDir ".." "packages" "vscodium-extensions-openvsx.txt" }}
+{{- if not (stat $extList) }}
+# Missing at render time. Say so explicitly: an empty list is indistinguishable
+# from an absent file once the heredoc is written, and "nothing to install"
+# reads as "your list is empty" rather than "the file chezmoi expected is gone".
+warn "packages/vscodium-extensions.txt not found — skipping the gallery list"
+warn "  expected at {{ $extList }}"
+{{- end }}
+{{- if not (stat $vsxList) }}
+warn "packages/vscodium-extensions-openvsx.txt not found — skipping the Open VSX list"
+warn "  expected at {{ $vsxList }}"
+{{- end }}
+EXT_LIST_RAW="$(cat <<'DOTFILES_EXTENSION_LIST'
+{{ if stat $extList }}{{ include $extList }}{{ end }}
+DOTFILES_EXTENSION_LIST
+)"
 
-# Open VSX-only extensions. jeanp413 never published open-remote-ssh to the
-# Microsoft marketplace, so `--install-extension jeanp413.open-remote-ssh`
-# reports "not found". Fetch the VSIX from Open VSX directly instead of
-# depending on whichever gallery is configured.
-OPENVSX_EXTENSIONS=(
-  jeanp413.open-remote-ssh
-)
+OPENVSX_LIST_RAW="$(cat <<'DOTFILES_OPENVSX_LIST'
+{{ if stat $vsxList }}{{ include $vsxList }}{{ end }}
+DOTFILES_OPENVSX_LIST
+)"
+
+# Strip comments, keep only well-formed <publisher>.<name> IDs so a typo yields
+# one skipped extension rather than handing codium a garbage argument.
+# NB: strip spaces/tabs/CR but NOT newlines — `tr -d '[:space:]'` would fold the
+# whole list onto one line and match nothing.
+parse_list() {
+  printf '%s\n' "$1" | sed 's/#.*//' | tr -d ' \t\r' \
+    | grep -E '^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$' || true
+}
+
+mapfile -t EXTENSIONS < <(parse_list "$EXT_LIST_RAW")
+mapfile -t OPENVSX_EXTENSIONS < <(parse_list "$OPENVSX_LIST_RAW")
+
+if [[ ${#EXTENSIONS[@]} -eq 0 && ${#OPENVSX_EXTENSIONS[@]} -eq 0 ]]; then
+  warn "no valid extension IDs in either list — nothing to do"
+  exit 0
+fi
 
 if ! command -v codium >/dev/null 2>&1; then
   echo "codium not on PATH — skipping extension install."
@@ -39,7 +69,7 @@ fi
 
 failed=0
 
-for ext in "${EXTENSIONS[@]}"; do
+for ext in ${EXTENSIONS[@]+"${EXTENSIONS[@]}"}; do
   echo "Installing $ext..."
   # NODE_NO_WARNINGS silences codium's own DEP0169 url.parse() deprecation
   # noise (upstream cliProcessMain.js, not ours to fix) on every extension.

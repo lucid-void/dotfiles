@@ -221,8 +221,9 @@ collect_pkgs() {
 # Full parity with headless.txt for Debian/Ubuntu VMs and Codespaces. Package
 # names for the straightforward apt-get case live in packages/headless-apt.txt;
 # a handful of headless.txt tools have no apt package at all (starship, rustup,
-# yq, lazygit, gdu, bottom, fastfetch, carapace, gh) and are fetched below via
-# official installers, GitHub release binaries, or a third-party apt repo.
+# yq, lazygit, gdu, bottom, fastfetch, carapace, gh) — plus neovim, which has one
+# that is too old to be usable — and are fetched below via official installers,
+# GitHub release binaries, or a third-party apt repo.
 # Everything here is idempotent (command -v guarded) and never fatal — one
 # tool failing to install warns and the run continues. All of them land in
 # ~/.local/bin except rustup, which owns ~/.cargo/bin — .zshrc adds both.
@@ -280,8 +281,17 @@ fetch_github_release_binary() (
       # SIGPIPE (exit 141), which `pipefail` promotes to a failed assignment and
       # `set -e` turns into an abort of the *whole* script — for an optional
       # tool. Same idiom the extension installers already use.
+      #
+      # Prefer a match under a bin/ directory. Some tarballs ship more than one
+      # file named after the binary — fastfetch's has usr/bin/fastfetch *and* a
+      # bash-completion script also called `fastfetch` — and a bare -name match
+      # takes whichever readdir reaches first. That is filesystem order, not
+      # archive order, so it installed the completion script as `fastfetch` on
+      # one host and the real binary on the next. The fallback keeps the flat
+      # tarballs (lazygit, btm, gdu) working, since those have no bin/ at all.
       local found
-      found="$(find "$tmp" -type f -name "$inner_name" -print -quit)"
+      found="$(find "$tmp" -type f -name "$inner_name" -path '*/bin/*' -print -quit)"
+      [[ -n "$found" ]] || found="$(find "$tmp" -type f -name "$inner_name" -print -quit)"
       if [[ -z "$found" ]]; then
         warn "could not find $inner_name inside $asset — install $dest manually"
         return 1
@@ -294,6 +304,205 @@ fetch_github_release_binary() (
         || warn "could not install $dest to ~/.local/bin"
       ;;
   esac
+)
+
+# ── Version-guarded upstream installs ──────────────────────────
+# Two tools below are in apt but at a version too old to do the job (neovim,
+# rclone). They can't use fetch_github_release_binary's `command -v` guard: an
+# old copy at /usr/bin satisfies it, so the fetch would be skipped and the host
+# left broken. They check the version instead, which also makes them upgrade in
+# place rather than no-op once the floor rises.
+#
+# True when $1 (a bare version, "0.10.4") is at least $2. An empty $1 — the tool
+# is absent, or its version could not be parsed — is never new enough.
+version_at_least() {
+  local have="$1" want="$2"
+  [[ -n "$have" ]] || return 1
+  # sort -V puts the smaller first; if that is still $want, then $have >= $want.
+  #
+  # A suffixed build sorts *after* the bare release of the same number, so
+  # "1.60.1-DEV" counts as >= "1.60.1". That is the wanted reading here: Debian
+  # tags its ordinary release builds -DEV (its rclone 1.60.1 package reports
+  # "rclone v1.60.1-DEV"), so the suffix marks a build, not a pre-release, and
+  # treating it as older would reinstall over a package that was already fine.
+  #
+  # `sed -n 1p` rather than `head -1` — head exits early and hands sort a
+  # SIGPIPE, which pipefail promotes to a failed assignment and `set -e` turns
+  # into an abort of the whole script. Same footgun as the find above.
+  [[ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | sed -n 1p)" == "$want" ]]
+}
+
+# ── Neovim ─────────────────────────────────────────────────────
+# Not from apt. Debian trixie ships 0.10.4 and Ubuntu 24.04 ships 0.9.5, but
+# LazyVim requires 0.11.2 and refuses to start below it — so the apt package is
+# not a slightly-old editor here, it is one that opens to an error and no
+# config. Arch's neovim tracks upstream, which is why headless.txt still names
+# the package and only this path replaces it.
+#
+# fetch_github_release_binary can't be reused: upstream ships a relocatable
+# *tree*, not a single binary — bin/nvim needs share/nvim/runtime alongside it.
+# So the whole thing goes to ~/.local/share and only a symlink lands in
+# ~/.local/bin. nvim derives $VIMRUNTIME from the resolved path of its own
+# executable, so it follows that symlink home on its own and no VIMRUNTIME
+# export is needed (verified: bin/nvim reached via a symlink in another
+# directory still finds its runtime).
+NVIM_MIN=0.11.2
+NVIM_PREFIX="$HOME/.local/share/nvim-release"
+
+# Version of the nvim on PATH, bare ("0.12.4"), or empty when there is none.
+# The first line is "NVIM v0.12.4".
+nvim_installed_version() {
+  command -v nvim >/dev/null 2>&1 || return 0
+  nvim --version 2>/dev/null | sed -n '1s/^NVIM v//p'
+}
+
+# Subshell + EXIT trap for temp-dir cleanup on every path, as above.
+install_neovim() (
+  local have arch asset url tmp top
+  have="$(nvim_installed_version)"
+  if version_at_least "$have" "$NVIM_MIN"; then
+    return 0
+  fi
+
+  case "$(uname -m)" in
+    x86_64)        arch=x86_64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) warn "no upstream Neovim build for $(uname -m) — install nvim >= $NVIM_MIN manually"; return 1 ;;
+  esac
+
+  # The asset name carries no version, so /releases/latest/download/ resolves it
+  # without the extra API round-trip fetch_github_release_binary needs for %V%.
+  asset="nvim-linux-$arch.tar.gz"
+  url="https://github.com/neovim/neovim/releases/latest/download/$asset"
+
+  log "Installing Neovim from upstream (apt has ${have:-none}, need >= $NVIM_MIN)"
+
+  tmp="$(mktemp -d)" || { warn "could not create temp dir for neovim"; return 1; }
+  trap 'rm -rf "$tmp"' EXIT
+
+  if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -o "$tmp/$asset" "$url"; then
+    warn "download failed for neovim ($url) — install nvim >= $NVIM_MIN manually"
+    return 1
+  fi
+  if ! tar -xzf "$tmp/$asset" -C "$tmp"; then
+    warn "could not extract $asset — install nvim >= $NVIM_MIN manually"
+    return 1
+  fi
+
+  top="$tmp/nvim-linux-$arch"
+  if [[ ! -x "$top/bin/nvim" ]]; then
+    warn "$asset did not contain bin/nvim where expected — install nvim manually"
+    return 1
+  fi
+
+  # Stage in $tmp and move the finished tree in, the way
+  # run_once_install_astronvim.sh stages its clone: extracting straight over
+  # $NVIM_PREFIX would leave a half-written tree that the symlink already points
+  # into if the run is interrupted. The rm only fires once the new tree is
+  # extracted and checked, so the window where neither exists is a rename wide.
+  mkdir -p "$(dirname "$NVIM_PREFIX")" "$HOME/.local/bin" || {
+    warn "could not create ~/.local/share — install nvim manually"; return 1; }
+  rm -rf "$NVIM_PREFIX"
+  if ! mv "$top" "$NVIM_PREFIX"; then
+    warn "could not move the neovim tree into $NVIM_PREFIX — install nvim manually"
+    return 1
+  fi
+  # ~/.local/bin precedes /usr/bin on PATH (see .zshrc), so this shadows any
+  # apt-installed nvim that is still present from an earlier provision.
+  ln -sf "$NVIM_PREFIX/bin/nvim" "$HOME/.local/bin/nvim" \
+    || { warn "could not symlink nvim into ~/.local/bin"; return 1; }
+
+  log "  Neovim $("$NVIM_PREFIX/bin/nvim" --version 2>/dev/null | sed -n '1s/^NVIM v//p') installed to $NVIM_PREFIX"
+)
+
+# ── rclone ─────────────────────────────────────────────────────
+# Same shape as neovim, different reason. The Filen backend landed in rclone
+# 1.73.0 (verified: backend/filen/ and docs/content/filen.md both first exist at
+# that tag, neither at 1.72.0), and trixie ships 1.60.1 — so on Debian
+# `rclone config` simply does not offer filen as a provider. Arch's rclone is
+# 1.75.0, which is why headless.txt names the package and only this path
+# replaces it.
+#
+# Not routed through fetch_github_release_binary for two reasons: that function
+# skips on `command -v` where this needs a version floor, and rclone ships a
+# .zip, which its tar-only extract case does not handle.
+RCLONE_MIN=1.73.0
+
+# Version of the rclone on PATH, bare ("1.75.0"), or empty when there is none.
+# The first line is "rclone v1.75.0"; Debian's package reports "rclone
+# v1.60.1-DEV", which parses to "1.60.1-DEV" and compares as described in
+# version_at_least — either way it is far below the floor.
+rclone_installed_version() {
+  command -v rclone >/dev/null 2>&1 || return 0
+  rclone version 2>/dev/null | sed -n '1s/^rclone v//p'
+}
+
+# Subshell + EXIT trap for temp-dir cleanup on every path, as above.
+install_rclone() (
+  local have arch tag asset url tmp bin
+  have="$(rclone_installed_version)"
+  if version_at_least "$have" "$RCLONE_MIN"; then
+    return 0
+  fi
+
+  case "$(uname -m)" in
+    x86_64)        arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) warn "no upstream rclone build for $(uname -m) — install rclone >= $RCLONE_MIN manually"; return 1 ;;
+  esac
+
+  if ! command -v unzip >/dev/null 2>&1; then
+    warn "unzip not installed — cannot unpack rclone; install rclone >= $RCLONE_MIN manually"
+    return 1
+  fi
+
+  # rclone embeds the version in both the asset name and the directory inside
+  # it, so unlike neovim the tag has to be resolved first — same redirect trick
+  # fetch_github_release_binary uses for its %V% assets.
+  if ! tag="$(curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 \
+        -o /dev/null -w '%{url_effective}' \
+        "https://github.com/rclone/rclone/releases/latest" | sed 's#.*/##')" || [[ -z "$tag" ]]; then
+    warn "could not resolve the latest rclone release — install rclone >= $RCLONE_MIN manually"
+    return 1
+  fi
+
+  asset="rclone-$tag-linux-$arch.zip"
+  url="https://github.com/rclone/rclone/releases/download/$tag/$asset"
+
+  log "Installing rclone from upstream (apt has ${have:-none}, need >= $RCLONE_MIN for the Filen backend)"
+
+  tmp="$(mktemp -d)" || { warn "could not create temp dir for rclone"; return 1; }
+  trap 'rm -rf "$tmp"' EXIT
+
+  # ~90 MB unpacked, so a longer --max-time than the single-binary fetches get.
+  if ! curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -o "$tmp/$asset" "$url"; then
+    warn "download failed for rclone ($url) — install rclone >= $RCLONE_MIN manually"
+    return 1
+  fi
+  if ! unzip -qo "$tmp/$asset" -d "$tmp"; then
+    warn "could not extract $asset — install rclone >= $RCLONE_MIN manually"
+    return 1
+  fi
+
+  bin="$tmp/rclone-$tag-linux-$arch/rclone"
+  if [[ ! -f "$bin" ]]; then
+    warn "$asset did not contain rclone where expected — install it manually"
+    return 1
+  fi
+
+  # A single binary, so unlike neovim this needs no prefix directory — the man
+  # page and READMEs in the zip are the only other contents and nothing here
+  # reads them. install(1) writes to a temp name and renames, so a concurrent
+  # rclone keeps running off the old inode rather than reading a half-written
+  # file. ~/.local/bin precedes /usr/bin on PATH (see .zshrc), so this shadows
+  # any apt-installed rclone still present from an earlier provision.
+  mkdir -p "$HOME/.local/bin" || { warn "could not create ~/.local/bin"; return 1; }
+  if ! install -m 755 "$bin" "$HOME/.local/bin/rclone"; then
+    warn "could not install rclone to ~/.local/bin"
+    return 1
+  fi
+
+  log "  rclone ${tag#v} installed to ~/.local/bin/rclone"
 )
 
 install_apt_headless() {
@@ -376,6 +585,11 @@ install_apt_headless() {
   # the only distribution channel. Needed by the fastfetch greeting's logo
   # source (`pokeget sylveon --hide-name` in dot_config/fastfetch/config.jsonc).
   fetch_github_release_binary talwat/pokeget-rs "pokeget-Linux-x86_64.tar.gz" pokeget || true
+
+  # In apt, but too old to be usable — see the version_at_least block above.
+  # `|| true` for the same reason as the calls above: they warn internally.
+  install_neovim || true
+  install_rclone || true
 }
 
 if [[ "$SKIP_PACKAGES" == true ]]; then

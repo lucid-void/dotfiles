@@ -6,8 +6,9 @@
 #
 # Not a 1:1 name mapping for everything — a few headless.txt tools have no apt
 # package at all (starship, rustup, yq, lazygit, gdu, bottom, fastfetch,
-# carapace, gh) and are installed separately by install.sh via official installers,
-# GitHub release binaries, or a third-party apt repo. See install.sh's
+# carapace, gh), and two — neovim and rclone — have one that is too old to do
+# the job, so all of them are installed separately by install.sh via official
+# installers, GitHub release binaries, or a third-party apt repo. See install.sh's
 # "Non-Arch (apt) package install" section for those.
 
 # ── Toolchain ──────────────────────────────────────────────────
@@ -21,6 +22,9 @@ tar
 unzip
 zip
 rsync
+# rclone is deliberately absent, like neovim below: trixie ships 1.60.1 and the
+# Filen backend needs 1.73.0, so `rclone config` would not offer filen at all.
+# install.sh's install_rclone fetches the upstream zip into ~/.local/bin.
 
 # ── Shell and terminal ─────────────────────────────────────────
 zsh
@@ -35,7 +39,19 @@ man-db
 manpages
 
 # ── Editor ─────────────────────────────────────────────────────
-neovim
+# neovim is deliberately absent: trixie ships 0.10.4 and Ubuntu 24.04 ships
+# 0.9.5, and LazyVim requires 0.11.2 or it refuses to start. install.sh's
+# install_neovim fetches the upstream tarball into ~/.local instead. Listing it
+# here as well would just install a second, older nvim at /usr/bin/nvim that
+# ~/.local/bin shadows anyway.
+
+# ── Shell tooling ──────────────────────────────────────────────
+# Mirrors the same section in headless.txt. Without these, scripts/lint.sh
+# aborts on its first check ("shellcheck is not installed") on every Debian and
+# Ubuntu host — so the repo could not be linted on exactly the machines the apt
+# path exists to provision.
+shellcheck
+shfmt
 
 # ── Git ────────────────────────────────────────────────────────
 git-delta

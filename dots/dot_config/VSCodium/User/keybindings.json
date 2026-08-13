@@ -48,5 +48,24 @@
     {
         "key": "ctrl+d",
         "command": "editor.action.duplicateSelection"
+    },
+    // Shift+Enter inserts a newline in Claude Code's prompt instead of
+    // submitting it. ESC+CR is the exact sequence `/terminal-setup` installs.
+    //
+    // It is written by hand here because /terminal-setup cannot install it
+    // itself on this setup, for two independent reasons: it refuses outright
+    // from a remote session ("keybindings must be installed on your local
+    // machine"), and it has no VSCodium branch — VSCodium reports
+    // TERM_PROGRAM=vscode, so it would resolve the path as plain VS Code and
+    // write to ~/.config/Code/User/, which VSCodium never reads.
+    //
+    // Only affects `claude` run in the integrated terminal. The Claude Code
+    // extension panel is a separate input with its own key handling, already
+    // set to Ctrl+Enter by "claudeCode.useCtrlEnterToSend" in settings.json.
+    {
+        "key": "shift+enter",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b\r" },
+        "when": "terminalFocus"
     }
 ]
