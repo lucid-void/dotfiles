@@ -1,3 +1,3 @@
-[submodule "dots/dot_config/quickshell/end4-pC"]
-	path = dots/dot_config/quickshell/end4-pC
-	url = https://github.com/pctrade/end4-pC
+[submodule "dots/repos/ii-quickshell"]
+	path = dots/repos/ii-quickshell
+	url = https://github.com/P3DROVFX/ii-p3drovfx
