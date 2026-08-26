@@ -1,3 +1,3 @@
-[submodule "dots/repos/ii-quickshell"]
-	path = dots/repos/ii-quickshell
+[submodule "ii-quickshell"]
+	path = ii-quickshell
 	url = https://github.com/P3DROVFX/ii-p3drovfx

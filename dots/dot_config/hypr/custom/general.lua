@@ -2,38 +2,38 @@
 -- as "will be overshadowed") if it overlaps the axis of one already registered for
 -- the same finger count. Since hyprland/general.lua registers its own gestures first,
 -- the defaults being replaced here must be explicitly unset before re-registering them.
-hl.gesture({ fingers = 3, direction = "swipe", action = "unset" })
-hl.gesture({ fingers = 3, direction = "pinch", action = "unset" })
-hl.gesture({ fingers = 4, direction = "horizontal", action = "unset" })
-hl.gesture({ fingers = 4, direction = "up", action = "unset" })
-hl.gesture({ fingers = 4, direction = "down", action = "unset" })
+-- hl.gesture({ fingers = 3, direction = "swipe", action = "unset" })
+-- hl.gesture({ fingers = 3, direction = "pinch", action = "unset" })
+-- hl.gesture({ fingers = 4, direction = "horizontal", action = "unset" })
+-- hl.gesture({ fingers = 4, direction = "up", action = "unset" })
+-- hl.gesture({ fingers = 4, direction = "down", action = "unset" })
 
-hl.gesture({
-    fingers = 4,
-    direction = "swipe",
-    action = "move"
-})
-hl.gesture({
-    fingers = 3,
-    direction = "pinch",
-    action = "fullscreen"
-})
-hl.gesture({
-    fingers = 3,
-    direction = "horizontal",
-    action = "workspace"
-})
-hl.gesture({
-    fingers = 3,
-    direction = "up",
-    action = function()
-        hl.dispatch(hl.dsp.global("quickshell:overviewWorkspacesToggle"))
-    end
-})
-hl.gesture({
-    fingers = 3,
-    direction = "down",
-    action = function()
-        hl.dispatch(hl.dsp.global("quickshell:overviewWorkspacesToggle"))
-    end
-})
+-- hl.gesture({
+--     fingers = 4,
+--     direction = "swipe",
+--     action = "move"
+-- })
+-- hl.gesture({
+--     fingers = 3,
+--     direction = "pinch",
+--     action = "fullscreen"
+-- })
+-- hl.gesture({
+--     fingers = 3,
+--     direction = "horizontal",
+--     action = "workspace"
+-- })
+-- hl.gesture({
+--     fingers = 3,
+--     direction = "up",
+--     action = function()
+--         hl.dispatch(hl.dsp.global("quickshell:overviewWorkspacesToggle"))
+--     end
+-- })
+-- hl.gesture({
+--     fingers = 3,
+--     direction = "down",
+--     action = function()
+--         hl.dispatch(hl.dsp.global("quickshell:overviewWorkspacesToggle"))
+--     end
+-- })

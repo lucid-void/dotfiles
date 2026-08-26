@@ -21,5 +21,6 @@
     "workbench.colorTheme": "Catppuccin Macchiato",
     "claudeCode.preferredLocation": "panel",
     "claudeCode.allowDangerouslySkipPermissions": true,
-    "claudeCode.useCtrlEnterToSend": true
+    "claudeCode.useCtrlEnterToSend": true,
+    "material-code.primaryColor": "#644BB6"
 }

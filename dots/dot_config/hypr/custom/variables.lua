@@ -1,9 +1,7 @@
-
--- Default variables
--- Copy these to ~/.config/hypr/custom/variables.lua to make changes in a dotfiles-update-friendly manner
-
--- The folder within ~/.config/quickshell containing the config
-hl.env("qsConfig", "end4-pC")
+-- This file will not be overwritten across dots-hyprland updates.
+-- The file name is for the sake of organization and does not matter
+-- See the corresponding files in ~/.config/hypr/hyprland for examples
+workspaceGroupSize = 10
 
 -- Apps
 -- PULL REQUESTS ADDING MORE WILL NOT BE ACCEPTED, CONFIG FOR YOURSELF
@@ -16,5 +14,3 @@ textEditor = "joplin-desktop"
 volumeMixer = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'pavucontrol-qt' 'pavucontrol'"
 settingsApp = "XDG_CURRENT_DESKTOP=gnome ~/.config/hypr/hyprland/scripts/launch_first_available.sh 'qs -p ~/.config/quickshell/$qsConfig/settings.qml' 'systemsettings' 'gnome-control-center' 'better-control'"
 taskManager = "~/.config/hypr/hyprland/scripts/launch_first_available.sh 'gnome-system-monitor' 'plasma-systemmonitor --page-name Processes' 'command -v btop && kitty -1 fish -c btop'"
-
-workspaceGroupSize = 10

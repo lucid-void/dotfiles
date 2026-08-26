@@ -9,7 +9,7 @@
 --   hyprctl monitors -j | jq '.[].description'
 -- and the icc profile is whatever you use for that display's SDR calibration.
 local pcMonitorMatch = "Microstep MPG 491C OLED" -- TODO: replace with real "<make model serial>" (no "desc:" prefix)
-local laptopPanel = "eDP-1"
+local laptopPanel = "LG Display 0x054C"
 
 hl.monitor({ 
     output = "desc:" .. pcMonitorMatch,
@@ -27,10 +27,10 @@ hl.monitor({
 -- rule with the *same* name -- without this, toggling `disabled` below would
 -- silently reset mode/position/scale to their defaults instead of preserving them.
 hl.monitor({
-    output = laptopPanel,
-    mode = "preferred",
+    output = "desc:" .. laptopPanel,
+    mode = "1920x1080@60.2",
     position = "auto",
-    scale = 1.2
+    scale = 1.2,
 })
 
 -- Disable the laptop screen while the PC monitor is connected, and restore it
@@ -38,11 +38,37 @@ hl.monitor({
 -- at Hyprland startup, so this covers both hotplug and boot-with-dock-attached.
 hl.on("monitor.added", function(mon)
     if mon.description:find(pcMonitorMatch, 1, true) then
-        hl.monitor({ output = laptopPanel, disabled = true })
+        hl.monitor({ output = "desc:" .. laptopPanel, disabled = true })
     end
 end)
 hl.on("monitor.removed", function(mon)
     if mon.description:find(pcMonitorMatch, 1, true) then
-        hl.monitor({ output = laptopPanel, disabled = false })
+        hl.monitor({ output = "desc:" .. laptopPanel, disabled = false })
     end
 end)
+
+-- Also turn the laptop panel off on lid close, but only when some other
+-- monitor is actually present -- otherwise closing the lid would blank every
+-- screen. Left off on lid open if the known PC monitor is still connected,
+-- so this doesn't fight the monitor.added/removed handling above.
+local function externalMonitorConnected()
+    for _, mon in ipairs(hl.get_monitors()) do
+        if not mon.description:find(laptopPanel, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+hl.bind("switch:on:Lid Switch", function()
+    if externalMonitorConnected() then
+        hl.monitor({ output = "desc:" .. laptopPanel, disabled = true })
+    end
+end, { locked = true })
+
+hl.bind("switch:off:Lid Switch", function()
+    local pcMonitor = hl.get_monitor("desc:" .. pcMonitorMatch)
+    if not pcMonitor then
+        hl.monitor({ output = "desc:" .. laptopPanel, disabled = false })
+    end
+end, { locked = true })

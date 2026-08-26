@@ -5,43 +5,50 @@
 require("hyprland.lib")
 require("hyprland.services")
 
+local function safe_require(module_name)
+    local ok, err = pcall(require, module_name)
+    if not ok then
+        hl.exec_cmd("notify-send 'Hyprland Lua Error' 'Failed to load " .. module_name .. ": " .. tostring(err):gsub("'", "\\'") .. "' -u critical -a 'Hyprland'")
+    end
+    return ok
+end
+
 -- Environment variables --
-require("hyprland.env")
+safe_require("hyprland.env")
 if is_file_exists(HOME .. "/.config/hypr/custom/env.lua") then
-    require("custom.env")
+    safe_require("custom.env")
 end
 
 -- Default configurations --
-require("hyprland.execs")
-require("hyprland.general")
-require("hyprland.rules")
-require("hyprland.colors")
-require("hyprland.keybinds")
+safe_require("hyprland.execs")
+safe_require("hyprland.general")
+safe_require("hyprland.rules")
+safe_require("hyprland.colors")
+safe_require("hyprland.keybinds")
 
 -- Custom configurations --
+if is_file_exists(HOME .. "/.config/hypr/custom/input.lua") then
+    safe_require("custom.input")
+end
 if is_file_exists(HOME .. "/.config/hypr/custom/execs.lua") then
-    require("custom.execs")
+    safe_require("custom.execs")
 end
 if is_file_exists(HOME .. "/.config/hypr/custom/general.lua") then
-    require("custom.general")
-end
-if is_file_exists(HOME .. "/.config/hypr/custom/monitors.lua") then
-    require("custom.monitors")
+    safe_require("custom.general")
 end
 if is_file_exists(HOME .. "/.config/hypr/custom/rules.lua") then
-    require("custom.rules")
+    safe_require("custom.rules")
 end
 if is_file_exists(HOME .. "/.config/hypr/custom/keybinds.lua") then
-    require("custom.keybinds")
+    safe_require("custom.keybinds")
 end
-
--- nwg-displays support --
-if is_file_exists(HOME .. "/.config/hypr/workspaces.lua") then
-    require("workspaces")
+if is_file_exists(HOME .. "/.config/hypr/hyprmon.lua") then
+    require("hyprmon")
 end
-if is_file_exists(HOME .. "/.config/hypr/monitors.lua") then
-    require("monitors")
+if is_file_exists(HOME .. "/.config/hypr/custom/monitors.lua") then
+    safe_require("custom.monitors")
 end
 
 -- Shell overrides --
-require("hyprland.shellOverrides.main")
+safe_require("hyprland.shellOverrides.main")
+

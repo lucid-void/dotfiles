@@ -822,6 +822,28 @@ if [[ -f "$REPO_DIR/.gitmodules" ]]; then
   fi
 fi
 
+# ── ii-quickshell setup ────────────────────────────────────────
+# Runs the fork's own installer before chezmoi apply, same reasoning as the
+# submodule fetch above: dots/dot_config/hypr/hyprland/variables.lua points
+# qsConfig at this config, so it needs to be in place before anything tries to
+# load it. Never fatal — a failure here warns and the rest of the dotfiles
+# still apply.
+#
+# `apply` (the script's default command) refuses to run until the base
+# illogical-impulse dotfiles are present, since it only lays down the
+# Quickshell config on top of them. On a machine where they're missing —
+# i.e. this is the first run — `install` is what pulls in that base first.
+# Once ~/.config/illogical-impulse exists, later runs go back to the cheap
+# `apply`, so this doesn't reinstall system packages on every re-run.
+if [[ -f "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh" ]]; then
+  ii_cmd=apply
+  [[ -d "${XDG_CONFIG_HOME:-$HOME/.config}/illogical-impulse" ]] || ii_cmd=install
+  log "Running ii-quickshell setup ($ii_cmd)"
+  chmod +x "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh"
+  "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh" "$ii_cmd" -y \
+    || warn "ii-quickshell setup failed — re-run: $REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh"
+fi
+
 log "Installing chezmoi"
 if ! command -v chezmoi >/dev/null 2>&1; then
   # The installer is captured and checked rather than piped straight into
@@ -894,6 +916,86 @@ else
   grep -qxF "$ZSH_PATH" /etc/shells 2>/dev/null \
     || echo "$ZSH_PATH" | "${SUDO[@]}" tee -a /etc/shells >/dev/null
   "${SUDO[@]}" chsh -s "$ZSH_PATH" "$(id -un)" || warn "chsh failed — set it manually"
+fi
+
+# ── SDDM — retired display manager ──────────────────────────────
+# Hyprland now starts itself: systemd autologins tty1 and dots/dot_zprofile
+# execs Hyprland from there, so SDDM's autologin-into-hyprland setup (and the
+# ii-sddm-theme greeter it showed on the way) is just a frame around a step
+# that no longer needs one.
+#
+# Retroactive and idempotent — this only ever arrived via pacman, so a host
+# that never had sddm, or was already cleaned up by a previous run, hits the
+# `pacman -Qq` guard and no-ops. Desktop + Arch only, matching every other
+# sddm/theme reference in this repo.
+if [[ "$IS_DESKTOP" == true ]] && command -v pacman >/dev/null 2>&1; then
+  if pacman -Qq sddm >/dev/null 2>&1; then
+    if ! $HAVE_ROOT; then
+      warn "no root or passwordless sudo — remove sddm yourself:"
+      warn "  sudo systemctl disable sddm.service"
+      warn "  sudo pacman -Rns sddm"
+      warn "  sudo rm -rf /usr/share/sddm/themes/ii-sddm-theme /etc/sddm.conf /etc/sddm.conf.d"
+    else
+      log "Removing sddm (Hyprland now starts itself via tty1 autologin)"
+      # disable before remove: pacman won't stop/disable a running service on
+      # its own, and a leftover display-manager.service symlink would still
+      # point at the now-deleted unit.
+      "${SUDO[@]}" systemctl disable sddm.service 2>/dev/null || true
+      "${SUDO[@]}" pacman -Rns --noconfirm sddm \
+        || warn "pacman could not remove sddm — remove it manually"
+      "${SUDO[@]}" rm -rf /usr/share/sddm/themes/ii-sddm-theme /etc/sddm.conf /etc/sddm.conf.d
+    fi
+  fi
+
+  # tty1 autologin is what dot_zprofile's `exec Hyprland` depends on to ever
+  # run — set up unconditionally, not just when sddm was found, so a host
+  # that never had sddm still ends up with a way into Hyprland.
+  AUTOLOGIN_CONF=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+  AUTOLOGIN_USER="$(id -un)"
+  if [[ -f "$AUTOLOGIN_CONF" ]] && grep -q -- "--autologin $AUTOLOGIN_USER " "$AUTOLOGIN_CONF" 2>/dev/null; then
+    log "tty1 autologin already set up for $AUTOLOGIN_USER"
+  elif ! $HAVE_ROOT; then
+    warn "no root or passwordless sudo — enable tty1 autologin yourself:"
+    warn "  see $AUTOLOGIN_CONF"
+  else
+    log "Enabling tty1 autologin for $AUTOLOGIN_USER"
+    "${SUDO[@]}" mkdir -p "$(dirname "$AUTOLOGIN_CONF")"
+    printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin %s --noclear %%I $TERM\n' "$AUTOLOGIN_USER" \
+      | "${SUDO[@]}" tee "$AUTOLOGIN_CONF" >/dev/null
+    "${SUDO[@]}" systemctl daemon-reload
+    "${SUDO[@]}" systemctl enable getty@tty1.service 2>/dev/null || true
+  fi
+
+  # ── Passwordless sudo ──────────────────────────────────────────
+  # Companion to tty1 autologin above: without a display manager caching a
+  # PAM session, the sudo password becomes the only prompt left anywhere in
+  # this single-user desktop's boot path. This makes sudo itself passwordless
+  # for the account too, so it's consistent everywhere sudo is invoked, not
+  # just inside this script.
+  #
+  # `visudo -cf` validates the drop-in *before* it's installed — a syntax
+  # error landing straight in a live /etc/sudoers.d file breaks sudo for
+  # everyone, including the root shell that would otherwise fix it.
+  SUDOERS_USER="$(id -un)"
+  SUDOERS_DROPIN="/etc/sudoers.d/${SUDOERS_USER}-nopasswd"
+  if [[ -f "$SUDOERS_DROPIN" ]]; then
+    log "Passwordless sudo already set up for $SUDOERS_USER"
+  elif ! $HAVE_ROOT; then
+    warn "no root or passwordless sudo — set up passwordless sudo yourself:"
+    warn "  echo '$SUDOERS_USER ALL=(ALL) NOPASSWD: ALL' | sudo tee $SUDOERS_DROPIN"
+    warn "  sudo chmod 0440 $SUDOERS_DROPIN"
+  else
+    log "Enabling passwordless sudo for $SUDOERS_USER"
+    tmp_sudoers="$(mktemp)"
+    echo "$SUDOERS_USER ALL=(ALL) NOPASSWD: ALL" > "$tmp_sudoers"
+    if "${SUDO[@]}" visudo -cf "$tmp_sudoers" >/dev/null 2>&1; then
+      "${SUDO[@]}" install -m 0440 -o root -g root "$tmp_sudoers" "$SUDOERS_DROPIN" \
+        || warn "could not install $SUDOERS_DROPIN — set up passwordless sudo manually"
+    else
+      warn "generated sudoers drop-in failed visudo validation — skipping (this should not happen)"
+    fi
+    rm -f "$tmp_sudoers"
+  fi
 fi
 
 # Pre-warm zinit so the first real terminal is fast. Never fatal.
