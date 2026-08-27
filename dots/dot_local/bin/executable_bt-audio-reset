@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Recover a Bluetooth sink stuck in error state after a failed transport
+# acquire (multipoint: the headset was holding its A2DP stream for the
+# other host). Cycles the card profile, which forces BlueZ to re-Acquire.
+set -euo pipefail
+
+card=$(pactl list cards short | awk '/bluez_card/ {print $2; exit}')
+[[ -n ${card:-} ]] || { echo "no bluetooth card connected" >&2; exit 1; }
+
+want=$(pactl list cards | awk -v c="$card" '
+  $0 ~ "Name: " c {f=1}
+  f && /Active Profile:/ {print $3; exit}')
+[[ $want == off || -z $want ]] && want=a2dp-sink-aac
+
+echo "cycling $card -> off -> $want"
+pactl set-card-profile "$card" off
+sleep 1
+pactl set-card-profile "$card" "$want"
+pactl set-default-sink "$(pactl list sinks short | awk '/bluez_output/ {print $2; exit}')"
+echo "ok"

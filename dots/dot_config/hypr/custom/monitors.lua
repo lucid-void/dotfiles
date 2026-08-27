@@ -22,6 +22,13 @@ hl.monitor({
     vrr = 1,
 })
 
+hl.monitor({ 
+    output = "desc:" .. "TV",
+    mode = "3840x2160@144",
+    position = "0x0",
+    scale = 2,
+})
+
 -- Dedicated named rule for the laptop panel, mirroring the "" catch-all values.
 -- Needed because a fresh hl.monitor() call only inherits fields from a previous
 -- rule with the *same* name -- without this, toggling `disabled` below would

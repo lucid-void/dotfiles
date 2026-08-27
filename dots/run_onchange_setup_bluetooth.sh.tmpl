@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Installs /etc/bluetooth/main.conf, which chezmoi cannot manage as a dotfile.
+#
+# BlueZ has no equivalent of a drop-in directory and no per-user config:
+# bluetoothd runs as a system daemon and reads exactly one file, /etc/bluetooth/
+# main.conf. (`bluetoothd -f FILE` exists, but pointing a root daemon at a file
+# under $HOME hands every process running as this user root-level control over
+# the Bluetooth stack, which is not a trade worth making for a config file.)
+# So the file is inlined below from .chezmoitemplates/bluetooth-main.conf and
+# copied into place with sudo.
+#
+# `run_onchange_` rather than `run_` because this needs sudo and restarting
+# bluetoothd drops every active Bluetooth connection — neither belongs in a
+# `chezmoi apply` that had nothing to do. chezmoi hashes the *rendered* script,
+# and the config is rendered into it, so editing the template re-runs this.
+#
+# Note for future package upgrades: /etc/bluetooth/main.conf is in bluez's
+# pacman backup array, so once this script modifies it, upgrading bluez writes
+# main.conf.pacnew instead of overwriting. Diff it occasionally.
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "bluetooth"
+     "what"   "a Bluetooth config tweak"
+     "why"    "no Bluetooth adapter to configure"
+     "ctx"    .) }}
+TARGET=/etc/bluetooth/main.conf
+BACKUP=/etc/bluetooth/main.conf.pre-chezmoi
+
+if [[ ! -x /usr/lib/bluetooth/bluetoothd ]] && ! command -v bluetoothd >/dev/null 2>&1; then
+  warn "bluetoothd not found — install packages/desktop.txt, then re-run chezmoi apply"
+  exit 0
+fi
+
+staged="$(mktemp)" || { warn "could not create a temp file — skipping"; exit 0; }
+trap 'rm -f "$staged"' EXIT
+
+cat >"$staged" <<'EOF'
+{{ includeTemplate "bluetooth-main.conf" . }}
+EOF
+
+# The common case by far: chezmoi re-ran this script for an unrelated reason
+# (a template variable moved, the file was restored from backup) and the config
+# on disk is already correct. Bail before asking for a password or bouncing the
+# daemon, so an apply that changes nothing costs nothing.
+if cmp -s "$staged" "$TARGET"; then
+  exit 0
+fi
+
+# `sudo -n` first: a non-interactive apply (install.sh over ssh, a provisioning
+# run, a cron-driven `chezmoi update`) must not block on a password prompt that
+# nobody is there to answer. With a terminal attached, fall through and let sudo
+# prompt normally.
+if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
+  warn "need root to write $TARGET and sudo would prompt with no terminal attached"
+  warn "re-run \`chezmoi apply\` from an interactive shell to finish this step"
+  exit 0
+fi
+
+# Taken once, before the first overwrite, and never refreshed — the point is to
+# preserve whatever the machine had before chezmoi took over this file, which a
+# later re-copy of our own output would destroy.
+if [[ ! -f "$BACKUP" ]] && [[ -f "$TARGET" ]]; then
+  if ! sudo cp -p "$TARGET" "$BACKUP" 2>/dev/null; then
+    warn "could not back up $TARGET to $BACKUP — refusing to overwrite it"
+    exit 0
+  fi
+fi
+
+if ! install_err="$(sudo install -m 644 -o root -g root "$staged" "$TARGET" 2>&1)"; then
+  warn "could not write $TARGET: ${install_err:-no output}"
+  exit 0
+fi
+
+# bluetoothd re-reads main.conf only at startup: the unit is Type=dbus with no
+# ExecReload, and `systemctl show bluetooth -p CanReload` says no. A restart is
+# the only way to apply this, and it drops connected devices for a few seconds —
+# acceptable here only because we already know the file actually changed.
+if ! restart_err="$(sudo systemctl restart bluetooth 2>&1)"; then
+  warn "wrote $TARGET but could not restart bluetooth: ${restart_err:-no output}"
+  warn "the new settings apply on next boot regardless"
+  exit 0
+fi
+
+printf 'bluetooth: updated %s and restarted bluetoothd\n' "$TARGET"
+printf '           connected devices may need a moment to come back\n'
+
+exit 0
