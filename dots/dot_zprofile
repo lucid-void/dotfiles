@@ -1,7 +1,8 @@
 # ── Hyprland autologin ────────────────────────────────────────
-# Replaces what SDDM used to do: systemd autologins this user on tty1 (see
-# /etc/systemd/system/getty@tty1.service.d/autologin.conf), and this is what
-# takes it from a bare shell prompt the rest of the way into Hyprland.
+# Replaces what SDDM used to do: systemd autologins this user on tty1 — via
+# /etc/systemd/system/getty@tty1.service.d/autologin.conf, written by
+# run_setup_autologin.sh — and this is what takes it from a bare shell prompt
+# the rest of the way into Hyprland. Neither half does anything alone.
 #
 # Guarded three ways: tty1 only (other VTs stay plain shells), no
 # WAYLAND_DISPLAY (never re-exec from inside a session Hyprland already

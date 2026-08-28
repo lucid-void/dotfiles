@@ -947,24 +947,12 @@ if [[ "$IS_DESKTOP" == true ]] && command -v pacman >/dev/null 2>&1; then
     fi
   fi
 
-  # tty1 autologin is what dot_zprofile's `exec Hyprland` depends on to ever
-  # run — set up unconditionally, not just when sddm was found, so a host
-  # that never had sddm still ends up with a way into Hyprland.
-  AUTOLOGIN_CONF=/etc/systemd/system/getty@tty1.service.d/autologin.conf
-  AUTOLOGIN_USER="$(id -un)"
-  if [[ -f "$AUTOLOGIN_CONF" ]] && grep -q -- "--autologin $AUTOLOGIN_USER " "$AUTOLOGIN_CONF" 2>/dev/null; then
-    log "tty1 autologin already set up for $AUTOLOGIN_USER"
-  elif ! $HAVE_ROOT; then
-    warn "no root or passwordless sudo — enable tty1 autologin yourself:"
-    warn "  see $AUTOLOGIN_CONF"
-  else
-    log "Enabling tty1 autologin for $AUTOLOGIN_USER"
-    "${SUDO[@]}" mkdir -p "$(dirname "$AUTOLOGIN_CONF")"
-    printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin %s --noclear %%I $TERM\n' "$AUTOLOGIN_USER" \
-      | "${SUDO[@]}" tee "$AUTOLOGIN_CONF" >/dev/null
-    "${SUDO[@]}" systemctl daemon-reload
-    "${SUDO[@]}" systemctl enable getty@tty1.service 2>/dev/null || true
-  fi
+  # tty1 autologin — the other half of what sddm used to do, and what
+  # dot_zprofile's `exec Hyprland` depends on to ever run — is set up by
+  # dots/run_setup_autologin.sh, which `chezmoi init --apply` above already
+  # ran. It lives there rather than here so that a plain `chezmoi apply` on an
+  # already-provisioned host configures it too, and so the drop-in has exactly
+  # one definition to keep correct.
 
   # ── Passwordless sudo ──────────────────────────────────────────
   # Companion to tty1 autologin above: without a display manager caching a

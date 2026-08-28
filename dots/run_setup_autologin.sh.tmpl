@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Installs /etc/systemd/system/getty@tty1.service.d/autologin.conf — the half of
+# "boot straight into Hyprland" that cannot be a dotfile.
+#
+# Two pieces, neither of which works alone:
+#   this script          systemd logs this user in on tty1 with no prompt
+#   dots/dot_zprofile    execs Hyprland from that tty1 login shell
+# There is no display manager on these hosts — install.sh removes sddm — so
+# without this drop-in tty1 stops at a login prompt and dot_zprofile's
+# `exec Hyprland` never runs. install.sh used to write this file itself; it now
+# defers here so a bare `chezmoi apply` sets up autologin too, and so there is
+# one copy of the drop-in rather than two that can drift.
+#
+# A drop-in rather than an edit of getty@.service: the unit is owned by the
+# systemd package, and overriding ExecStart from /etc is exactly what drop-ins
+# exist for — a systemd upgrade rewrites the unit and leaves this file alone.
+#
+# `run_` rather than `run_onchange_`: the `cmp` below makes the already-correct
+# case free (no sudo, no daemon-reload), and unlike run_onchange_ this recovers
+# on its own from a run that bailed early. chezmoi records a run_onchange_
+# script's hash whenever it exits 0 — including the "sudo would prompt with no
+# terminal" path below — and then never re-runs it, so the work would be
+# silently skipped forever on the machine that needed it most.
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "autologin"
+     "what"   "tty1 autologin"
+     "why"    "no Hyprland session to log into"
+     "ctx"    .) }}
+TARGET=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+BACKUP=/etc/systemd/system/getty@tty1.service.d/autologin.conf.pre-chezmoi
+UNIT=getty@tty1.service
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  warn "systemctl not found — nothing here to configure, skipping"
+  exit 0
+fi
+
+# Deliberately not gated on Hyprland being installed. Autologin is useful and
+# harmless on its own (worst case: tty1 lands on a shell prompt instead of a
+# login prompt), and dot_zprofile already refuses to exec a Hyprland that is
+# not on PATH — so on a box where the desktop packages have not landed yet this
+# just sits there correctly until they do.
+staged="$(mktemp)" || { warn "could not create a temp file — skipping"; exit 0; }
+trap 'rm -f "$staged"' EXIT
+
+# Mirrors Arch's stock getty@.service ExecStart line, plus --autologin: the
+# empty `ExecStart=` first is required, because ExecStart is not a
+# last-one-wins setting — without the reset systemd appends and refuses to
+# start a Type=oneshot-less service with two ExecStart entries. `-` for the tty
+# argument (rather than %I) and `--noreset --noclear` are copied verbatim from
+# the packaged unit so this overrides *only* the autologin behaviour.
+cat >"$staged" <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --noreset --noclear --autologin {{ .chezmoi.username }} - ${TERM}
+EOF
+
+# The common case on every apply after the first: already correct. Bail before
+# asking for a password or reloading systemd, so an apply that changes nothing
+# costs nothing.
+if cmp -s "$staged" "$TARGET"; then
+  exit 0
+fi
+
+# `sudo -n` first: a non-interactive apply (install.sh over ssh, a provisioning
+# run, a cron-driven `chezmoi update`) must not block on a password prompt that
+# nobody is there to answer. With a terminal attached, fall through and let sudo
+# prompt normally.
+if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
+  warn "need root to write $TARGET and sudo would prompt with no terminal attached"
+  warn "re-run \`chezmoi apply\` from an interactive shell to finish this step"
+  exit 0
+fi
+
+# Normally there is nothing here to preserve — this drop-in is ours alone — but
+# a host that had autologin configured by hand before chezmoi took it over
+# keeps that file. Taken once and never refreshed, so a later re-copy of our own
+# output cannot destroy it.
+if [[ ! -f "$BACKUP" ]] && [[ -f "$TARGET" ]]; then
+  if ! sudo cp -p "$TARGET" "$BACKUP" 2>/dev/null; then
+    warn "could not back up $TARGET to $BACKUP — refusing to overwrite it"
+    exit 0
+  fi
+fi
+
+if ! sudo mkdir -p "$(dirname "$TARGET")" 2>/dev/null; then
+  warn "could not create $(dirname "$TARGET") — skipping"
+  exit 0
+fi
+
+if ! install_err="$(sudo install -m 644 -o root -g root "$staged" "$TARGET" 2>&1)"; then
+  warn "could not write $TARGET: ${install_err:-no output}"
+  exit 0
+fi
+
+if ! reload_err="$(sudo systemctl daemon-reload 2>&1)"; then
+  warn "wrote $TARGET but \`systemctl daemon-reload\` failed: ${reload_err:-no output}"
+  warn "the new settings apply on next boot regardless"
+  exit 0
+fi
+
+# getty@tty1 is enabled by default via getty.target, but an installer that
+# disabled it (or a host that came up with a display manager instead) would
+# leave the drop-in describing a unit that never starts.
+if ! systemctl is-enabled --quiet "$UNIT" 2>/dev/null; then
+  sudo systemctl enable "$UNIT" >/dev/null 2>&1 \
+    || warn "could not enable $UNIT — run \`sudo systemctl enable $UNIT\` yourself"
+fi
+
+# Deliberately NOT restarting $UNIT. On a machine that is already logged in,
+# tty1 is the session running Hyprland right now — restarting the getty kills
+# it and takes the desktop down mid-apply. Autologin is a boot-time concern
+# anyway, so next boot is the right and only time for this to take effect.
+printf 'autologin: %s now logs in on tty1 without a prompt\n' {{ .chezmoi.username | quote }}
+printf '           takes effect on next boot; dot_zprofile execs Hyprland from there\n'
+
+exit 0
