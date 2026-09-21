@@ -8,6 +8,14 @@
 # WAYLAND_DISPLAY (never re-exec from inside a session Hyprland already
 # started, e.g. a terminal it spawned), and Hyprland must actually be on
 # PATH — a no-op on headless boxes, which never install it.
+#
+# start-hyprland, not bare Hyprland: Hyprland >= 0.53 logs "launched without
+# start-hyprland. This is highly advised against" otherwise. It is the
+# supervisor wrapper the package ships, so prefer it and fall back to the raw
+# binary on older installs that predate it.
 if [[ -z "$WAYLAND_DISPLAY" && "$(tty)" == "/dev/tty1" ]] && command -v Hyprland >/dev/null 2>&1; then
+  if command -v start-hyprland >/dev/null 2>&1; then
+    exec start-hyprland
+  fi
   exec Hyprland
 fi

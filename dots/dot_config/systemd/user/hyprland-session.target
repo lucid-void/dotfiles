@@ -1,0 +1,13 @@
+[Unit]
+Description=Hyprland compositor session
+Documentation=man:systemd.special(7)
+# hyprland/execs.lua (from the ii-quickshell submodule) runs
+# `systemctl --user start hyprland-session.target` once the session env is
+# imported, and `stop` on shutdown. Nothing shipped that unit, so both calls
+# failed every boot. Defined here rather than patched into the submodule.
+# Same shape as uwsm/upstream compositor targets: pulling in
+# graphical-session.target is what lets session-scoped user services
+# (WantedBy=graphical-session.target) start and stop with Hyprland.
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target

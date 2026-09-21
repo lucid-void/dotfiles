@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Gives gnome-keyring a login keyring that unlocks without a password.
+#
+# Why this exists: there is no login password typed anywhere on these hosts.
+# systemd autologins tty1 (run_setup_autologin.sh) and dot_zprofile execs
+# Hyprland, so pam_gnome_keyring never sees a password to unlock the keyring
+# with — and adding the PAM module would not change that. A password-protected
+# login.keyring therefore stays locked, and the first thing that asks the
+# Secret Service for something (Quickshell's "illogical-impulse Safe Storage")
+# makes gcr pop a password dialog on every boot. If it is not answered within
+# ~10s gcr-prompter quits and the request is silently dropped.
+#
+# Same trade the rest of the single-user autologin setup already makes (see the
+# passwordless sudo in install.sh): the boot path has no password prompt left
+# in it. The disk is not LUKS-encrypted either, so this gives up little that
+# is not already readable by anyone holding the drive.
+#
+# The mechanism is gnome-keyring's plaintext keyring format: a login.keyring
+# whose first line is `[keyring]` is loaded unlocked with no password, and the
+# `default` file makes it the default collection. (`gnome-keyring-daemon
+# --login` with an empty password does NOT create one — tested — so the file
+# has to be written directly.)
+#
+# What this never does is touch an existing keyring. A password-protected
+# login.keyring cannot be converted without its password, and replacing it
+# would destroy whatever secrets it holds, so that case only warns and prints
+# the one-off manual step. `run_` rather than `run_onchange_`: every branch is
+# cheap and idempotent, and a run that bailed early should retry next apply.
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "keyring"
+     "what"   "a passwordless keyring"
+     "why"    "no Secret Service consumers, so no keyring to unlock"
+     "ctx"    .) }}
+KEYRING_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/keyrings"
+LOGIN="$KEYRING_DIR/login.keyring"
+DEFAULT="$KEYRING_DIR/default"
+
+if ! command -v gnome-keyring-daemon >/dev/null 2>&1; then
+  warn "gnome-keyring-daemon not found — nothing to configure, skipping"
+  exit 0
+fi
+
+if [[ -f "$LOGIN" ]]; then
+  # `[keyring]` is the plaintext format; an encrypted one starts with the
+  # `GnomeKeyring` magic. Anything else we do not recognise is left alone.
+  if head -c 9 "$LOGIN" 2>/dev/null | grep -q '^\[keyring\]'; then
+    exit 0
+  fi
+  warn "$LOGIN is password-protected, so it stays locked under autologin"
+  warn "and prompts on every boot. It cannot be converted without its password;"
+  warn "leaving it untouched. To fix it once, by hand:"
+  warn "  seahorse -> right-click 'Login' -> Change Password -> leave both new"
+  warn "  password fields blank (or delete login.keyring to start fresh)"
+  exit 0
+fi
+
+if ! mkdir -p "$KEYRING_DIR" 2>/dev/null || ! chmod 700 "$KEYRING_DIR" 2>/dev/null; then
+  warn "could not create $KEYRING_DIR — skipping"
+  exit 0
+fi
+
+# Write to a sibling temp file and rename, so a daemon reading the directory
+# never sees a half-written keyring.
+tmp="$(mktemp "$KEYRING_DIR/.login.keyring.XXXXXX")" \
+  || { warn "could not create a temp file in $KEYRING_DIR — skipping"; exit 0; }
+trap 'rm -f "$tmp"' EXIT
+
+cat >"$tmp" <<'EOF'
+[keyring]
+display-name=Login
+ctime=0
+mtime=0
+lock-on-idle=false
+lock-after=false
+EOF
+
+if ! chmod 600 "$tmp" || ! mv -f "$tmp" "$LOGIN"; then
+  warn "could not install $LOGIN — skipping"
+  exit 0
+fi
+
+# Only claim the default slot if nothing already has it: a user who picked
+# another default keyring on purpose keeps it.
+if [[ ! -e "$DEFAULT" ]]; then
+  printf 'login' >"$DEFAULT" || warn "could not write $DEFAULT"
+fi
+
+printf 'keyring: created a passwordless login keyring at %s\n' "$LOGIN"
+printf '         takes effect when gnome-keyring-daemon next starts (next login)\n'
+
+exit 0
