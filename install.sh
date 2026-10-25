@@ -842,6 +842,28 @@ if [[ -f "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh" ]]; then
   chmod +x "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh"
   "$REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh" "$ii_cmd" -y \
     || warn "ii-quickshell setup failed — re-run: $REPO_DIR/ii-quickshell/setup-ii-p3drovfx.sh"
+
+  # setup-ii-p3drovfx.sh reopens the welcome/onboarding window for every verb
+  # except literally "update" — "apply" doesn't qualify, so it pops back up on
+  # every single re-run of this script, not just the first. Close it right
+  # back when this wasn't a first install: the user has already seen
+  # onboarding, and a re-run of install.sh is meant to be the cheap, quiet
+  # path. Best-effort — a missing qs/quickshell binary or a shell that isn't
+  # up yet just leaves the window open, same as before this existed.
+  if [[ "$ii_cmd" == "apply" ]]; then
+    ii_ipc_bin=""
+    if command -v qs >/dev/null 2>&1; then
+      ii_ipc_bin=qs
+    elif command -v quickshell >/dev/null 2>&1; then
+      ii_ipc_bin=quickshell
+    fi
+    if [[ -n "$ii_ipc_bin" ]]; then
+      for _ in {1..10}; do
+        "$ii_ipc_bin" -c ii ipc call welcome close >/dev/null 2>&1 && break
+        sleep 0.2
+      done
+    fi
+  fi
 fi
 
 log "Installing chezmoi"

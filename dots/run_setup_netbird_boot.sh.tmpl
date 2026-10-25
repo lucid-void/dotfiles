@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Stops netbird@.service from holding up the boot for full network readiness.
+#
+# Why this exists: the packaged unit has `After=network-online.target` plus
+# `Wants=network-online.target`, and is `WantedBy=multi-user.target` — so
+# reaching multi-user.target (and graphical.target after it) waits for the
+# whole netbird start job, which in turn waits for
+# NetworkManager-wait-online.service to decide every interface is online.
+# Measured on this machine: NetworkManager-wait-online.service alone took
+# 5.49s, the single biggest chunk of the ~10s userspace portion of boot
+# (`systemd-analyze critical-chain` showed the exact chain: graphical.target
+# -> multi-user.target -> netbird@main.service -> network-online.target ->
+# NetworkManager-wait-online.service).
+#
+# netbird does not need the network to be fully "online" before its own
+# process starts — it is a long-running daemon with its own reconnect loop,
+# the same way it already copes with the network dropping after boot. It just
+# needs NetworkManager itself to be up so its backend is available, which
+# `After=NetworkManager.service` alone already covers.
+#
+# A drop-in rather than an edit of netbird@.service: the unit is owned by the
+# netbird package, and a package upgrade rewrites it — a drop-in survives
+# that, the same reasoning as run_setup_autologin.sh.tmpl.
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "netbird-boot"
+     "what"   "a faster boot without netbird blocking it"
+     "why"    "no netbird service to speed up"
+     "ctx"    .) }}
+TARGET=/etc/systemd/system/netbird@.service.d/no-network-wait.conf
+
+if ! systemctl list-unit-files 'netbird@.service' >/dev/null 2>&1; then
+  warn "netbird@.service not installed — nothing to override, skipping"
+  exit 0
+fi
+
+staged="$(mktemp)" || { warn "could not create a temp file — skipping"; exit 0; }
+trap 'rm -f "$staged"' EXIT
+
+# Both lists are reset to empty first — a systemd drop-in directive with an
+# empty value clears everything the unit file set, not just appends — then
+# re-populated with NetworkManager.service/syslog.target only, dropping
+# network-online.target from both.
+cat >"$staged" <<'EOF'
+[Unit]
+Wants=
+After=
+After=NetworkManager.service syslog.target
+EOF
+
+# The common case on every apply after the first: already correct.
+if cmp -s "$staged" "$TARGET"; then
+  exit 0
+fi
+
+if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
+  warn "need root to write $TARGET and sudo would prompt with no terminal attached"
+  warn "re-run \`chezmoi apply\` from an interactive shell to finish this step"
+  exit 0
+fi
+
+if ! sudo mkdir -p "$(dirname "$TARGET")" 2>/dev/null; then
+  warn "could not create $(dirname "$TARGET") — skipping"
+  exit 0
+fi
+
+if ! install_err="$(sudo install -m 644 -o root -g root "$staged" "$TARGET" 2>&1)"; then
+  warn "could not write $TARGET: ${install_err:-no output}"
+  exit 0
+fi
+
+if ! reload_err="$(sudo systemctl daemon-reload 2>&1)"; then
+  warn "wrote $TARGET but \`systemctl daemon-reload\` failed: ${reload_err:-no output}"
+  warn "the new ordering applies on next boot regardless"
+  exit 0
+fi
+
+# Deliberately not restarting any netbird@ instance: this only changes boot
+# ordering, and a running instance would just drop its tunnel for no reason.
+printf 'netbird-boot: netbird@.service no longer waits on network-online.target\n'
+printf '              takes effect on next boot\n'
+
+exit 0

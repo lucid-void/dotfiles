@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Stops ananicy-cpp from deprioritizing the Quickshell process.
+#
+# Why this exists: CachyOS ships ananicy-cpp (a nice/ionice/sched auto-tuner)
+# enabled by default, with a bundled rule (cachyos-ananicy-rules,
+# DEs-and-WMs/dank-material-shell.rules) that matches any process literally
+# named `qs` — which is both DankMaterialShell's and Quickshell's binary name
+# — and tags it type "Service", reniced to +10 (verified: `ps -o ni` on a
+# live `qs -c ii` showed nice 10 before this override, nice 0 after).
+#
+# On AC power there is enough CPU headroom that the lower scheduling priority
+# is invisible. Under a laptop's efficiency/power-saver profile (lower cpufreq
+# clocks, lower EPP) the reduced priority compounds with the reduced clock
+# speed, and keystrokes in the bar/launcher visibly lag behind their render.
+#
+# The fix is a second rule for the same process name in a file that sorts
+# after cachyos-ananicy-rules' 00-default/: ananicy-cpp keeps one rule per
+# process name, last one loaded wins, so this fully replaces the Service
+# classification rather than layering on top of it (confirmed live: after
+# loading this file, ionice/sched/oom_score_adj on the process all read back
+# as their un-tuned defaults, not just nice).
+{{ includeTemplate "sh-preamble" (dict
+     "prefix" "ananicy-override"
+     "what"   "a scheduling override for Quickshell"
+     "why"    "no ananicy-cpp to override"
+     "ctx"    .) }}
+TARGET=/etc/ananicy.d/90-dotfiles-overrides.rules
+
+if ! command -v systemctl >/dev/null 2>&1 || ! systemctl list-unit-files ananicy-cpp.service >/dev/null 2>&1; then
+  warn "ananicy-cpp not installed — nothing to override, skipping"
+  exit 0
+fi
+
+staged="$(mktemp)" || { warn "could not create a temp file — skipping"; exit 0; }
+trap 'rm -f "$staged"' EXIT
+
+cat >"$staged" <<'EOF'
+{ "name": "qs", "nice": 0 }
+EOF
+
+# The common case on every apply after the first: already correct.
+if cmp -s "$staged" "$TARGET" 2>/dev/null; then
+  exit 0
+fi
+
+if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
+  warn "need root to write $TARGET and sudo would prompt with no terminal attached"
+  warn "re-run \`chezmoi apply\` from an interactive shell to finish this step"
+  exit 0
+fi
+
+if ! sudo mkdir -p "$(dirname "$TARGET")" 2>/dev/null; then
+  warn "could not create $(dirname "$TARGET") — skipping"
+  exit 0
+fi
+
+if ! install_err="$(sudo install -m 644 -o root -g root "$staged" "$TARGET" 2>&1)"; then
+  warn "could not write $TARGET: ${install_err:-no output}"
+  exit 0
+fi
+
+if ! reload_err="$(sudo systemctl reload ananicy-cpp 2>&1)"; then
+  warn "wrote $TARGET but \`systemctl reload ananicy-cpp\` failed: ${reload_err:-no output}"
+  warn "the override takes effect on next ananicy-cpp restart regardless"
+  exit 0
+fi
+
+printf 'ananicy-override: qs no longer reniced by ananicy-cpp'"'"'s Service rule\n'
+
+exit 0
